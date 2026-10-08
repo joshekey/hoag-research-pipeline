@@ -24,7 +24,7 @@ class ReportIndexTests(unittest.TestCase):
     def write_source(self, report_id="101", encounter_id="501"):
         extended = ["NULL"] * 28
         extended[0] = quoted(report_id)
-        extended[5] = quoted("FINDINGS: Synthetic\nIMPRESSION: Synthetic")
+        extended[5] = quoted("FINDINGS: Synthetic / IMPRESSION: Synthetic")
         lab = ["NULL"] * 7
         lab[0] = quoted(report_id)
         lab[1] = quoted(encounter_id)
