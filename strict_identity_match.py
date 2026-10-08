@@ -10,12 +10,17 @@ NAME = re.compile(r"(?is)\bPATIENT\s*NAME\s*:\s*(.*?)\s*(?=\b(?:MEDICAL\s*RECORD
 DOB = re.compile(r"(?i)\b(?:DATE\s*OF\s*BIRTH|DOB)\s*:\s*(\d{1,4}[-/]\d{1,2}[-/]\d{1,4}|\d{8})")
 EXAM = re.compile(r"(?i)\b(?:DATE\s*OF\s*STUDY|EXAM\s*DATE|DATE\s*OF\s*EXAM(?:INATION)?)\s*:\s*(\d{1,4}[-/]\d{1,2}[-/]\d{1,4}|\d{8})")
 
+def _text(value):
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value or "")
+
 def normalize_name(value):
-    s = str(value or "").replace("^", " ").replace(",", " ")
+    s = _text(value).replace("^", " ").replace(",", " ")
     return " ".join(sorted(re.findall(r"[A-Z]+", s.upper())))
 
 def normalize_date(value):
-    s = str(value or "").strip()
+    s = _text(value).strip()
     for fmt in ("%Y%m%d", "%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y",
                 "%Y-%m-%d %H:%M:%S"):
         try:
@@ -25,7 +30,7 @@ def normalize_date(value):
     return ""
 
 def extract_header(narrative):
-    text = str(narrative or "")
+    text = _text(narrative)
     name, dob, exam = NAME.search(text), DOB.search(text), EXAM.search(text)
     return {
         "name": normalize_name(name.group(1)) if name else "",
