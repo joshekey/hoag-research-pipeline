@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pydicom
 from pydicom.errors import InvalidDicomError
-from store import audit, database, idle, progress, research_uid, token
+from store import audit, checkpoint, database, idle, progress, research_uid, token
 
 TAGS = ['StudyInstanceUID', 'SeriesInstanceUID', 'SOPInstanceUID', 'SOPClassUID',
         'AccessionNumber', 'PatientID', 'IssuerOfPatientID', 'PatientName',
@@ -126,6 +126,7 @@ def scan(config, job=None, folders=None):
     with database(config) as db:
         db.execute("UPDATE settings SET value='0' WHERE key='scan_complete'")
         db.execute("UPDATE studies SET state='needs_review', approved_fingerprint=NULL, approved_hash=NULL")
+    progress(config, job, 0, 'Discovering files; study catalog builds in the next phase', 'Scanning files')
     scopes = selection(config, folders)
     run = str(uuid.uuid4())
     count = 0
@@ -133,6 +134,7 @@ def scan(config, job=None, folders=None):
         def onerror(error):
             raise OSError('Source traversal failed') from None
         for directory, dirs, names in os.walk(selected, onerror=onerror, followlinks=False):
+            checkpoint(config, job)
             dirs[:] = [d for d in dirs if not (Path(directory) / d).is_symlink()]
             for name in names:
                 path = Path(directory) / name
@@ -144,6 +146,9 @@ def scan(config, job=None, folders=None):
                     if old and old['status'] in ('ok', 'ignored') and (old['size'], old['mtime']) == (stat.st_size, stat.st_mtime_ns):
                         db.execute('UPDATE files SET active=1,seen=? WHERE id=?', (run, old['id']))
                         count += 1
+                        if count % 100 == 0:
+                            db.commit()
+                            progress(config, job, count, 'Scanning files (including unchanged files)', 'Scanning files')
                         continue
                 kind, status, meta = 'other', 'ignored', {}
                 try:
@@ -184,9 +189,9 @@ def scan(config, job=None, folders=None):
                 except InvalidDicomError:
                     # A .dcm with an invalid header is actionable; unrelated files are ignored.
                     if path.suffix.lower() == '.dcm':
-                        kind, status = 'dicom', 'error'
+                        kind, status, meta = 'dicom', 'error', {'error': 'Invalid DICOM header'}
                 except (ValueError, OSError, EOFError):
-                    status, meta = 'error', {}
+                    status, meta = 'error', {'error': 'Cannot read this file; check permissions, text encoding, file size and DICOM identifiers'}
                 with database(config) as db:
                     db.execute('''INSERT INTO files(path,root,kind,size,mtime,metadata,status,seen)
                         VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET
@@ -195,13 +200,15 @@ def scan(config, job=None, folders=None):
                         (str(path), str(root), kind, stat.st_size, stat.st_mtime_ns, json.dumps(meta), status, run))
                 count += 1
                 if count % 100 == 0:
-                    progress(config, job, count, 'Indexing source files')
+                    progress(config, job, count, 'Scanning files; these are not study counts', 'Scanning files')
     with database(config) as db:
         db.execute('UPDATE files SET active=0 WHERE seen IS NULL OR seen<>?', (run,))
         db.execute("INSERT OR REPLACE INTO settings VALUES ('scan_folders',?)", (json.dumps(folders),))
+    progress(config, job, count, 'File scan complete; building study catalog and report links', 'Building studies')
     match(config, job, from_scan=True)
     with database(config) as db:
         db.execute("UPDATE settings SET value='1' WHERE key='scan_complete'")
+        db.execute("INSERT OR REPLACE INTO settings VALUES ('last_scan',?)", (str(time.time()),))
     progress(config, job, count, 'Scan and candidate matching completed')
 
 
@@ -228,20 +235,29 @@ def inspect_sql(config, file_id, job=None):
 
 
 def match(config, job=None, from_scan=False):
+    progress(config, job, 0, 'Indexing report identifiers', 'Matching reports')
     with database(config) as db:
         if not from_scan:
             require_scan(db)
         db.execute("UPDATE studies SET state='needs_review',approved_fingerprint=NULL,approved_hash=NULL")
         db.execute('DELETE FROM report_keys')
-        for row in db.execute("SELECT * FROM files WHERE kind='report' AND active=1 AND status='ok'"):
+        db.commit()
+        for number, row in enumerate(db.execute("SELECT * FROM files WHERE kind='report' AND active=1 AND status='ok'").fetchall(), 1):
             meta = json.loads(row['metadata'])
             for key in meta['accessions']:
                 db.execute('INSERT OR IGNORE INTO report_keys VALUES (?,?,?)', (key, row['id'], 'Accession / filename'))
             for key in meta['uids']:
                 db.execute('INSERT OR IGNORE INTO report_keys VALUES (?,?,?)', (key, row['id'], 'Study UID'))
+            if number % 100 == 0:
+                db.commit()
+                progress(config, job, number, 'Indexing report identifiers', 'Matching reports')
         db.execute('DELETE FROM candidates')
+        groups = db.execute("SELECT DISTINCT json_extract(metadata,'$.StudyInstanceUID') uid FROM files WHERE kind='dicom' AND active=1 AND status='ok'").fetchall()
+        db.commit()
+        progress(config, job, 0, f'Building {len(groups)} studies; results appear incrementally', 'Building studies')
         count = 0
-        for group in db.execute("SELECT DISTINCT json_extract(metadata,'$.StudyInstanceUID') uid FROM files WHERE kind='dicom' AND active=1 AND status='ok'"):
+        for group in groups:
+            checkpoint(config, job)
             uid = group['uid']
             rows = [dict(r) for r in db.execute("SELECT * FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=?", (uid,))]
             metas = [json.loads(row['metadata']) for row in rows]
@@ -266,6 +282,9 @@ def match(config, job=None, from_scan=False):
             if candidates and state != 'conflict':
                 db.execute('UPDATE studies SET state=? WHERE uid=?', ('candidate' if len(candidates) == 1 else 'ambiguous', uid))
             count += 1
+            db.commit()
+            if count % 25 == 0:
+                progress(config, job, count, f'Built {count} of {len(groups)} studies', 'Building studies')
         db.execute("DELETE FROM studies WHERE uid NOT IN (SELECT json_extract(metadata,'$.StudyInstanceUID') FROM files WHERE kind='dicom' AND active=1 AND status='ok')")
     progress(config, job, count, 'Candidate matches refreshed; select and review reports')
 
@@ -328,6 +347,7 @@ def prepare(config, uid, report_id, job=None, nlp=None):
     clean = sanitize_report(text, identifiers, nlp)
     hashes = {}
     for count, row in enumerate(instances, 1):
+        checkpoint(config, job)
         hashes[str(row['id'])] = file_digest(source_path(config, row))
         source_path(config, row)
         if count % 20 == 0:
@@ -486,6 +506,7 @@ def export_study(config, uid, job=None):
         (bundle / 'DICOM').mkdir()
         (bundle / 'Report').mkdir()
         for count, row in enumerate(rows, 1):
+            checkpoint(config, job)
             path = source_path(config, row)
             if row['size'] > config['max_dicom_bytes']:
                 raise ValueError('DICOM exceeds per-instance memory limit')
@@ -513,6 +534,7 @@ def export_study(config, uid, job=None):
                 raise ValueError('Output validation failed')
             entries.append({'path': 'DICOM/' + target.name, 'sha256': file_digest(target), 'bytes': target.stat().st_size})
             progress(config, job, count, 'Writing reviewed research package')
+        checkpoint(config, job)
         report_path = bundle / 'Report' / 'report.txt'
         report_path.write_text(study['sanitized'], encoding='utf-8')
         entries.append({'path': 'Report/report.txt', 'sha256': digest(report_path.read_bytes()), 'bytes': report_path.stat().st_size})
@@ -532,8 +554,8 @@ def export_study(config, uid, job=None):
         final = subject_dir / ('STUDY_' + token(config, 'study', uid)[:20] + '_' + uuid.uuid4().hex[:8])
         bundle.rename(final)
         with database(config) as db:
-            db.execute('INSERT INTO exports(study,folder,manifest_hash,created) VALUES (?,?,?,?)',
-                       (uid, str(final), digest((final / 'manifest.json').read_bytes()), time.time()))
+            db.execute('INSERT INTO exports(study,folder,manifest_hash,created,bytes) VALUES (?,?,?,?,?)',
+                       (uid, str(final), digest((final / 'manifest.json').read_bytes()), time.time(), sum(item['bytes'] for item in entries)))
             db.execute("UPDATE studies SET state='exported' WHERE uid=?", (uid,))
             audit(db, 'worker', 'export-completed', final.name)
         return final
@@ -542,3 +564,40 @@ def export_study(config, uid, job=None):
         with database(config) as db:
             db.execute("UPDATE studies SET state='review',approved_hash=NULL,approved_fingerprint=NULL WHERE uid=?", (uid,))
         raise
+
+
+def validate_export(config, export_id, job=None):
+    output = checked_root(config, config['output_root'], output=True)
+    with database(config) as db:
+        record = db.execute('SELECT * FROM exports WHERE id=?', (export_id,)).fetchone()
+    if not record:
+        raise ValueError('Package unavailable')
+    folder = Path(record['folder'])
+    if folder.is_symlink() or not folder.resolve(strict=True).is_relative_to(output):
+        raise ValueError('Package is outside the output root')
+    try:
+        manifest_path = folder / 'manifest.json'
+        if manifest_path.is_symlink() or manifest_path.stat().st_size > 32 * 1024 * 1024 or file_digest(manifest_path) != record['manifest_hash']:
+            raise ValueError('Manifest checksum changed')
+        manifest = json.loads(manifest_path.read_text())
+        total = 0
+        for index, item in enumerate(manifest['files'], 1):
+            checkpoint(config, job)
+            relative = item['path']
+            if not isinstance(relative, str) or relative.startswith('/') or chr(92) in relative or any(p in ('', '..') for p in relative.split('/')):
+                raise ValueError('Invalid manifest path')
+            target = folder
+            for component in relative.split('/'):
+                target = target / component
+                if target.is_symlink():
+                    raise ValueError('Package contains a symbolic link')
+            if not target.resolve(strict=True).is_relative_to(folder.resolve()) or target.stat().st_size != item['bytes'] or file_digest(target) != item['sha256']:
+                raise ValueError('Package file validation failed')
+            total += item['bytes']
+            progress(config, job, index, 'Validating package checksums', 'Validating export')
+        with database(config) as db:
+            db.execute("UPDATE exports SET bytes=?,validated=?,validation='Checksums verified' WHERE id=?", (total, time.time(), export_id))
+    except (ValueError, OSError, KeyError, TypeError):
+        with database(config) as db:
+            db.execute("UPDATE exports SET validation='Validation failed' WHERE id=?", (export_id,))
+        raise ValueError('Package validation failed; inspect destination and manifest before sharing') from None

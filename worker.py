@@ -3,7 +3,7 @@ import json
 import time
 from pathlib import Path
 import engine
-from store import audit, database
+from store import Cancelled, audit, checkpoint, database
 
 
 def process_one(config):
@@ -12,13 +12,16 @@ def process_one(config):
         job = db.execute("SELECT * FROM jobs WHERE state='queued' ORDER BY id LIMIT 1").fetchone()
         if not job:
             return False
-        db.execute("UPDATE jobs SET state='running',message='Starting' WHERE id=?", (job['id'],))
+        db.execute("UPDATE jobs SET state='running',message='Starting',started=? WHERE id=?", (time.time(), job['id']))
     try:
+        checkpoint(config, job['id'])
         payload = json.loads(job['payload'])
         if job['kind'] == 'scan':
             engine.scan(config, job['id'], payload.get('folders'))
         elif job['kind'] == 'match':
             engine.match(config, job['id'])
+        elif job['kind'] == 'validate_export':
+            engine.validate_export(config, int(payload['export_id']), job['id'])
         elif job['kind'] == 'inspect_sql':
             engine.inspect_sql(config, int(payload['file_id']), job['id'])
         elif job['kind'] == 'prepare':
@@ -32,12 +35,15 @@ def process_one(config):
                 else:
                     targets = [dict(r) for r in db.execute("SELECT uid FROM studies WHERE state='approved'")]
             failures = 0
-            for target in targets:
+            for index, target in enumerate(targets, 1):
+                checkpoint(config, job['id'])
                 try:
                     if job['kind'] == 'prepare_candidates':
                         engine.prepare(config, target['uid'], target['report'], job['id'])
                     else:
                         engine.export_study(config, target['uid'], job['id'])
+                except Cancelled:
+                    raise
                 except Exception as error:
                     failures += 1
                     message = str(error) if type(error) is ValueError else type(error).__name__ + ': processing failed'
@@ -49,6 +55,10 @@ def process_one(config):
             raise ValueError('Unknown job')
         with database(config) as db:
             db.execute("UPDATE jobs SET state='completed',finished=?,message='Completed' WHERE id=?", (time.time(), job['id']))
+    except Cancelled:
+        with database(config) as db:
+            db.execute("UPDATE jobs SET state='cancelled',finished=?,message='Cancelled at a safe boundary; partial exports remain in restricted staging' WHERE id=?", (time.time(), job['id']))
+            audit(db, 'worker', 'job-cancelled', str(job['id']))
     except Exception as error:
         # ValueError messages are authored by this application. Never log arbitrary PHI-bearing exception text.
         message = str(error) if type(error) is ValueError else type(error).__name__ + ': processing failed; check mounts, encoding, dependencies and supported DICOM types'

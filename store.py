@@ -75,6 +75,17 @@ def initialize(config):
         for name, declaration in [('source_hashes', "TEXT NOT NULL DEFAULT '{}'"), ('last_error', "TEXT NOT NULL DEFAULT ''")]:
             if name not in columns:
                 db.execute(f'ALTER TABLE studies ADD COLUMN {name} {declaration}')
+        columns = {r['name'] for r in db.execute('PRAGMA table_info(jobs)')}
+        for name, declaration in [('phase', "TEXT NOT NULL DEFAULT ''"), ('started', 'REAL'),
+                                  ('cancel_requested', 'INTEGER NOT NULL DEFAULT 0')]:
+            if name not in columns:
+                db.execute(f'ALTER TABLE jobs ADD COLUMN {name} {declaration}')
+
+
+        columns = {r['name'] for r in db.execute('PRAGMA table_info(exports)')}
+        for name, declaration in [('bytes', 'INTEGER'), ('validated', 'REAL'), ('validation', "TEXT NOT NULL DEFAULT 'Not checked'")]:
+            if name not in columns:
+                db.execute(f'ALTER TABLE exports ADD COLUMN {name} {declaration}')
 
 
 def token(config, namespace, value):
@@ -91,7 +102,7 @@ def audit(db, actor, action, target=''):
 
 
 def enqueue(config, kind, payload=None, actor='admin'):
-    if kind not in ('scan', 'match', 'prepare', 'prepare_candidates', 'export', 'export_approved', 'inspect_sql'):
+    if kind not in ('scan', 'match', 'prepare', 'prepare_candidates', 'export', 'export_approved', 'inspect_sql', 'validate_export'):
         raise ValueError('Unknown job type')
     with database(config) as db:
         db.execute('BEGIN IMMEDIATE')
@@ -108,7 +119,21 @@ def idle(db):
         raise ValueError('Wait for the current job before changing a review')
 
 
-def progress(config, job, count, message):
+class Cancelled(Exception):
+    pass
+
+
+def checkpoint(config, job):
     if job is not None:
         with database(config) as db:
-            db.execute('UPDATE jobs SET progress=?,message=? WHERE id=?', (count, message, job))
+            row = db.execute('SELECT cancel_requested FROM jobs WHERE id=?', (job,)).fetchone()
+            if row and row[0]:
+                raise Cancelled('Cancelled at a safe processing boundary')
+
+
+def progress(config, job, count, message, phase=None):
+    if job is not None:
+        checkpoint(config, job)
+        with database(config) as db:
+            db.execute('UPDATE jobs SET progress=?,message=?,phase=COALESCE(?,phase) WHERE id=?',
+                       (count, message, phase, job))

@@ -2,6 +2,8 @@
 import io
 import json
 import secrets
+import shutil
+import time
 from functools import wraps
 from pathlib import Path
 
@@ -12,7 +14,7 @@ from PIL import Image
 from werkzeug.security import check_password_hash
 
 import engine
-from store import database, enqueue, initialize, token
+from store import audit, database, enqueue, initialize, token
 
 
 def create_app(config):
@@ -56,21 +58,99 @@ def create_app(config):
         with database(config) as db:
             counts = [dict(r) for r in db.execute('SELECT kind,status,count(*) count,sum(size) bytes FROM files WHERE active=1 GROUP BY kind,status')]
             states = [dict(r) for r in db.execute('SELECT state,count(*) count FROM studies GROUP BY state')]
-            jobs = [dict(r) for r in db.execute('SELECT id,kind,state,progress,message,created FROM jobs ORDER BY id DESC LIMIT 20')]
+            jobs = [dict(r) for r in db.execute('SELECT id,kind,state,progress,message,created,started,finished,phase,cancel_requested FROM jobs ORDER BY id DESC LIMIT 20')]
             sql = [dict(r) for r in db.execute("SELECT id,path,metadata FROM files WHERE kind='sql' AND active=1 AND status='ok'")]
-            exports = [dict(r) for r in db.execute('SELECT id,folder,created FROM exports ORDER BY id DESC LIMIT 20')]
-        return jsonify(counts=counts, states=states, jobs=jobs, sql=sql, exports=exports,
+            exports = [dict(r) for r in db.execute('SELECT id,folder,created,bytes,validated,validation FROM exports ORDER BY id DESC LIMIT 100')]
+            settings = dict(db.execute('SELECT key,value FROM settings'))
+            modalities = [r[0] for r in db.execute("SELECT DISTINCT modality FROM studies ORDER BY modality")]
+        return jsonify(counts=counts, states=states, jobs=jobs, sql=sql, exports=exports, settings=settings, modalities=modalities, now=time.time(),
                        sources=config['source_roots'], output=config['output_root'])
 
     @app.get('/api/studies')
     def studies():
         q = '%' + request.args.get('q', '')[:200] + '%'
         offset = max(0, int(request.args.get('offset', 0)))
+        clauses = ['(accession LIKE ? OR patient LIKE ? OR name LIKE ? OR subject LIKE ?)']
+        params = [q] * 4
+        for key, column in [('state', 'state'), ('modality', 'modality')]:
+            value = request.args.get(key, '')
+            if value:
+                clauses.append(column + '=?')
+                params.append(value[:100])
+        for key, op in [('from', '>='), ('to', '<=')]:
+            value = request.args.get(key, '').replace('-', '')
+            if value:
+                if len(value) != 8 or not value.isdigit():
+                    raise ValueError('Use a valid date filter')
+                clauses.append('date' + op + '?')
+                params.append(value)
+        sort = request.args.get('sort', 'date')
+        if sort not in ('date', 'accession', 'name', 'modality', 'count', 'state'):
+            raise ValueError('Invalid sort column')
+        direction = 'ASC' if request.args.get('direction') == 'asc' else 'DESC'
+        where = ' AND '.join(clauses)
         with database(config) as db:
-            rows = [dict(r) for r in db.execute('''SELECT uid,subject,accession,patient,name,date,modality,count,state
-                FROM studies WHERE accession LIKE ? OR patient LIKE ? OR name LIKE ? OR subject LIKE ?
-                ORDER BY date DESC,uid LIMIT 100 OFFSET ?''', (q, q, q, q, offset))]
+            total = db.execute('SELECT count(*) FROM studies WHERE ' + where, params).fetchone()[0]
+            rows = [dict(r) for r in db.execute('SELECT uid,subject,accession,patient,name,date,modality,count,state FROM studies WHERE ' + where + ' ORDER BY ' + sort + ' ' + direction + ',uid LIMIT 100 OFFSET ?', [*params, offset])]
+        if request.args.get('paged') == '1':
+            return jsonify(rows=rows, total=total, offset=offset, page_size=100)
         return jsonify(rows)
+
+    @app.get('/api/source-errors')
+    def source_errors():
+        with database(config) as db:
+            rows = [dict(r) for r in db.execute("SELECT path,kind,metadata FROM files WHERE active=1 AND status='error' ORDER BY id LIMIT 100")]
+        return jsonify(rows)
+
+    @app.get('/api/health')
+    def health():
+        results = []
+        for index, path in enumerate([*config['source_roots'], config['output_root']]):
+            output = index == len(config['source_roots'])
+            item = {'slot': ['bulk', 'imaging', 'output'][index], 'path': path, 'output': output}
+            try:
+                root = engine.checked_root(config, path, output=output)
+                usage = shutil.disk_usage(root)
+                item.update(ok=True, message='Writable output connected' if output else 'Read-only source connected', free=usage.free, total=usage.total)
+            except Exception as error:
+                item.update(ok=False, message=str(error) if type(error) is ValueError else 'Share unavailable; check mount and permissions')
+            results.append(item)
+        return jsonify(shares=results)
+
+    @app.post('/api/mount')
+    def mount():
+        from mount_service import request_mount
+        body = request.get_json()
+        return jsonify(request_mount(body))
+
+    @app.get('/api/report/<int:file_id>')
+    def report_text(file_id):
+        with database(config) as db:
+            row = db.execute("SELECT * FROM files WHERE id=? AND kind='report' AND status='ok' AND active=1", (file_id,)).fetchone()
+        if not row:
+            abort(404)
+        return jsonify(text=engine.read_report(config, row)[0], path=row['path'])
+
+    @app.post('/api/jobs/<int:job_id>/cancel')
+    def cancel(job_id):
+        with database(config) as db:
+            row = db.execute('SELECT state FROM jobs WHERE id=?', (job_id,)).fetchone()
+            if not row or row['state'] not in ('queued', 'running'):
+                raise ValueError('Job is no longer active')
+            if row['state'] == 'queued':
+                db.execute("UPDATE jobs SET state='cancelled',cancel_requested=1,finished=?,message='Cancelled before starting' WHERE id=?", (time.time(), job_id))
+            else:
+                db.execute('UPDATE jobs SET cancel_requested=1 WHERE id=?', (job_id,))
+            audit(db, config['username'], 'request-cancel', str(job_id))
+        return jsonify(message='Cancellation requested. The current operation finishes before the next safe boundary.')
+
+    @app.post('/api/jobs/<int:job_id>/retry')
+    def retry(job_id):
+        with database(config) as db:
+            row = db.execute('SELECT * FROM jobs WHERE id=?', (job_id,)).fetchone()
+        if not row or row['state'] not in ('failed', 'cancelled'):
+            raise ValueError('Only failed or cancelled jobs can be retried')
+        return jsonify(id=enqueue(config, row['kind'], json.loads(row['payload']), config['username']))
 
     @app.get('/api/folders')
     def folders():

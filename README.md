@@ -119,3 +119,21 @@ The server setup wizard prompts locally for SMB username, domain, and a hidden p
 After indexing a SQL dump, use **Inspect table and column names**. This bounded heuristic reads at most the first 32 MiB and shows supported CREATE TABLE definitions, highlighting potential accession, study UID, patient ID, report, or path fields. It never executes SQL, connects to a database, imports rows, or returns row values. Dumps without schema statements or with later schema definitions may require a separate local inspection. Table and column identifiers themselves are displayed only in the authenticated hospital workspace.
 
 Database row matching is not implemented yet. Once the actual schema is known, a source-specific importer can extract study-to-report relationships into the local catalog. Accession or study UID links are preferred; patient ID alone does not establish a unique study/report match. The original dump remains read-only and must stay outside the public repository.
+
+## Enhanced workspace and GUI share setup
+
+The dashboard now shows workflow stages, separate file/report/study counts, processing phase, elapsed time, scanning rate and last successful scan. A complete archive count is unknown during traversal, so no percentage or ETA is invented. Studies appear incrementally during catalog building; review/export remain blocked until a successful scan completes. Search, status/modality/date filters, sorting and numbered pagination stay intact while reviewing a study in the same page.
+
+Matching queues expose unmatched, single-candidate, ambiguous and conflicting studies. Review shows candidate report text alongside images, highlighted `[REDACTED]` tokens, zoom, frame navigation and drawable rectangular masks in original pixel coordinates. Masks still apply to every instance/frame in a study; different image dimensions may require specialist handling. Existing manual review requirements remain.
+
+Jobs can be cancelled cooperatively or retried. Cancellation waits for the current filesystem/decoder/NLP operation and checks safe boundaries; it cannot immediately interrupt a blocked SMB read. Completed batch studies remain; partial exports remain restricted in `.staging`. A cancelled scan requires a fresh successful scan. Source errors are listed locally (first 100). Export history shows the latest 100 packages and supports queued manifest/file checksum verification. Integrity verification does not certify de-identification.
+
+**Sources & mounts** lets the authenticated administrator connect or reconnect the three standard share slots. Enter UNC, SMB username, domain and password and confirm the reconnection checkbox. A local Unix-socket broker (`hoag-mount.service`) runs as root, accepts only the application service UID, validates fixed mountpoints, and uses fixed SMB options without a shell. The web and worker services remain unprivileged and keep `NoNewPrivileges=yes`. The broker is deliberately a privileged service and should be included in hospital security review. It cannot change arbitrary mountpoints or override unrelated IT-managed fstab entries. Passwords are cleared from the form after submission, never included in jobs, process arguments or audit events, and saved root-only under `/etc/hoag-research`. Trusted HTTPS is required for credential entry.
+
+Mount changes are blocked while any job is queued/running, reserve the catalog during reconnection, and invalidate scan readiness and approvals. Rescan after a connection change. Failed connections restore prior fstab/credential settings and attempt to reconnect the prior mount; verify connection health before retrying. The installer refuses updates while a job is active. Wait for your current scan to finish before installing this release.
+
+```bash
+sudo systemctl --no-pager status hoag-mount
+```
+
+Database inspection remains schema-only; actual SQL row matching still requires a source-specific importer. No hospital data, hostnames or credentials should be committed to this public repository.

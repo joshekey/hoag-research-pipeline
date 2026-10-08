@@ -1,0 +1,22 @@
+[Unit]
+Description=HOAG fixed-purpose SMB mount broker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+WorkingDirectory=/opt/hoag-research
+ExecStart=/opt/hoag-research/venv/bin/python /opt/hoag-research/mount_service.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectHome=yes
+RuntimeDirectory=hoag-mount
+RuntimeDirectoryMode=0750
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target
