@@ -23,7 +23,7 @@ The installer installs Python dependencies and the English NLP model, a dedicate
 
 The interactive console wizard asks for two source UNC paths and a **separate writable output share**, usernames, domains, and hidden passwords. Sources are mounted read-only using encrypted SMB 3.1.1. Paths with spaces are supported. Credentials remain root-only under `/etc/hoag-research`; the wizard backs up `/etc/fstab` and manages only its own mount entries. Leave a UNC blank to retain an IT-managed mount at the displayed mountpoint. Credentials, server names, and clinical data are not included in this public repository.
 
-A writable output share is required: a 500 GB local disk cannot hold a 2–3 TB full export. Output must not overlap source roots. Keep local state on hospital-managed storage; it contains PHI and identity mappings.
+A writable output share is required: a 500 GB local disk cannot hold a 2â€“3 TB full export. Output must not overlap source roots. Keep local state on hospital-managed storage; it contains PHI and identity mappings.
 
 ## Open the application
 
@@ -109,3 +109,13 @@ bash -n scripts/configure
 Tests use synthetic DICOM/report fixtures only: full export, source immutability, ambiguous matches, changed sources/reports, persistent UID mappings, private/nested identifiers, masking, checksums, queue exclusion, mount checks, authentication, CSRF, image previews and real local NLP. Keep PHI, credentials and actual SQL dumps out of GitHub issues, commits and CI artifacts.
 
 References: [Kitware DICOM anonymizer](https://github.com/KitwareMedical/dicom-anonymizer), [Presidio](https://microsoft.github.io/presidio/), [DICOM confidentiality options](https://dicom.nema.org/medical/dicom/current/output/chtml/part15/sect_E.3.html), [RHEL SMB mounting](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/10/html/managing_file_systems/mounting-an-smb-share).
+
+### Multiple source folders and SQL schema inspection
+
+Open **Choose source folders** in the web workspace. Browse a share and check as many folders as needed (for example A-C and D-F). Include folders containing the reports and SQL dump. Selected parents include all their descendants. **Index selected folders** replaces the active catalog scope with that selection; existing export packages remain. **Index both entire shares** explicitly scans everything. Folder browsing is restricted to configured source mounts and excludes symlinks.
+
+The server setup wizard prompts locally for SMB username, domain, and a hidden password. Credentials stay in root-only files on the server, outside GitHub. Persistent systemd automount entries reconnect the configured shares as needed; changed or expired passwords require rerunning `sudo /opt/hoag-research/configure`.
+
+After indexing a SQL dump, use **Inspect table and column names**. This bounded heuristic reads at most the first 32 MiB and shows supported CREATE TABLE definitions, highlighting potential accession, study UID, patient ID, report, or path fields. It never executes SQL, connects to a database, imports rows, or returns row values. Dumps without schema statements or with later schema definitions may require a separate local inspection. Table and column identifiers themselves are displayed only in the authenticated hospital workspace.
+
+Database row matching is not implemented yet. Once the actual schema is known, a source-specific importer can extract study-to-report relationships into the local catalog. Accession or study UID links are preferred; patient ID alone does not establish a unique study/report match. The original dump remains read-only and must stay outside the public repository.

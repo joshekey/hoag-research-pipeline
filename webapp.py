@@ -57,7 +57,7 @@ def create_app(config):
             counts = [dict(r) for r in db.execute('SELECT kind,status,count(*) count,sum(size) bytes FROM files WHERE active=1 GROUP BY kind,status')]
             states = [dict(r) for r in db.execute('SELECT state,count(*) count FROM studies GROUP BY state')]
             jobs = [dict(r) for r in db.execute('SELECT id,kind,state,progress,message,created FROM jobs ORDER BY id DESC LIMIT 20')]
-            sql = [dict(r) for r in db.execute("SELECT id,metadata FROM files WHERE kind='sql' AND active=1")]
+            sql = [dict(r) for r in db.execute("SELECT id,path,metadata FROM files WHERE kind='sql' AND active=1 AND status='ok'")]
             exports = [dict(r) for r in db.execute('SELECT id,folder,created FROM exports ORDER BY id DESC LIMIT 20')]
         return jsonify(counts=counts, states=states, jobs=jobs, sql=sql, exports=exports,
                        sources=config['source_roots'], output=config['output_root'])
@@ -71,6 +71,11 @@ def create_app(config):
                 FROM studies WHERE accession LIKE ? OR patient LIKE ? OR name LIKE ? OR subject LIKE ?
                 ORDER BY date DESC,uid LIMIT 100 OFFSET ?''', (q, q, q, q, offset))]
         return jsonify(rows)
+
+    @app.get('/api/folders')
+    def folders():
+        return jsonify(engine.browse_folders(config, int(request.args.get('root', 0)),
+                                             request.args.get('relative', '.'), int(request.args.get('offset', 0))))
 
     @app.get('/api/reports')
     def reports():

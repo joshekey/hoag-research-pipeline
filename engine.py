@@ -76,21 +76,63 @@ def read_report(config, row):
     return text, digest(raw)
 
 
-def scan(config, job=None):
+def selected_path(root, relative):
+    if not isinstance(relative, str) or '\\' in relative or relative.startswith('/') or any(part in ('..', '') for part in relative.split('/')):
+        raise ValueError('Invalid relative folder path')
+    path = root
+    for part in relative.split('/'):
+        path = path / part
+        if path.is_symlink():
+            raise ValueError('Symlink folders cannot be selected')
+    resolved = path.resolve(strict=True)
+    if not resolved.is_relative_to(root) or not resolved.is_dir():
+        raise ValueError('Folder is outside the configured source or is not a directory')
+    return resolved
+
+
+def selection(config, folders=None):
+    roots = [checked_root(config, r) for r in config['source_roots']]
+    for i, root in enumerate(roots):
+        if any(root == other or root.is_relative_to(other) or other.is_relative_to(root) for other in roots[:i]):
+            raise ValueError('Source roots overlap')
+    if folders is None:
+        return [(root, root) for root in roots]
+    if not isinstance(folders, list) or not 1 <= len(folders) <= 1000:
+        raise ValueError('Select between 1 and 1000 folders')
+    chosen = []
+    for folder in folders:
+        if not isinstance(folder, dict) or type(folder.get('root')) is not int or not 0 <= folder['root'] < len(roots):
+            raise ValueError('Invalid source share selection')
+        root = roots[folder['root']]
+        path = selected_path(root, folder.get('relative', '.'))
+        if any(path == other or path.is_relative_to(other) for _, other in chosen):
+            continue
+        chosen = [(r, p) for r, p in chosen if not p.is_relative_to(path)]
+        chosen.append((root, path))
+    return chosen
+
+
+def browse_folders(config, root_index, relative='.', offset=0):
+    if not 0 <= root_index < len(config['source_roots']) or offset < 0:
+        raise ValueError('Invalid source share or offset')
+    root = checked_root(config, config['source_roots'][root_index])
+    path = selected_path(root, relative)
+    children = sorted((p for p in path.iterdir() if not p.is_symlink() and p.is_dir()), key=lambda p: p.name.casefold())
+    return {'root': root_index, 'relative': relative, 'total': len(children),
+            'children': [{'name': p.name, 'relative': p.relative_to(root).as_posix()} for p in children[offset:offset + 200]]}
+
+
+def scan(config, job=None, folders=None):
     with database(config) as db:
         db.execute("UPDATE settings SET value='0' WHERE key='scan_complete'")
         db.execute("UPDATE studies SET state='needs_review', approved_fingerprint=NULL, approved_hash=NULL")
-    roots = [checked_root(config, r) for r in config['source_roots']]
-    for i, root in enumerate(roots):
-        if any(root == other or root.is_relative_to(other) or other.is_relative_to(root)
-               for other in roots[:i]):
-            raise ValueError('Source roots overlap')
+    scopes = selection(config, folders)
     run = str(uuid.uuid4())
     count = 0
-    for root in roots:
+    for root, selected in scopes:
         def onerror(error):
             raise OSError('Source traversal failed') from None
-        for directory, dirs, names in os.walk(root, onerror=onerror, followlinks=False):
+        for directory, dirs, names in os.walk(selected, onerror=onerror, followlinks=False):
             dirs[:] = [d for d in dirs if not (Path(directory) / d).is_symlink()]
             for name in names:
                 path = Path(directory) / name
@@ -154,13 +196,9 @@ def scan(config, job=None):
                 count += 1
                 if count % 100 == 0:
                     progress(config, job, count, 'Indexing source files')
-        with database(config) as db:
-            db.execute('UPDATE files SET active=0 WHERE root=? AND seen<>?', (str(root), run))
-    # Removed configured roots are no longer eligible.
     with database(config) as db:
-        for row in db.execute('SELECT DISTINCT root FROM files').fetchall():
-            if row['root'] not in [str(r) for r in roots]:
-                db.execute('UPDATE files SET active=0 WHERE root=?', (row['root'],))
+        db.execute('UPDATE files SET active=0 WHERE seen IS NULL OR seen<>?', (run,))
+        db.execute("INSERT OR REPLACE INTO settings VALUES ('scan_folders',?)", (json.dumps(folders),))
     match(config, job, from_scan=True)
     with database(config) as db:
         db.execute("UPDATE settings SET value='1' WHERE key='scan_complete'")
@@ -170,6 +208,23 @@ def scan(config, job=None):
 def require_scan(db):
     if db.execute("SELECT value FROM settings WHERE key='scan_complete'").fetchone()[0] != '1':
         raise ValueError('A complete successful source scan is required before matching, review, or export')
+
+
+def inspect_sql(config, file_id, job=None):
+    from sql_schema import inspect
+    with database(config) as db:
+        row = db.execute("SELECT * FROM files WHERE id=? AND kind='sql' AND active=1 AND status='ok'", (file_id,)).fetchone()
+    if not row:
+        raise ValueError('SQL dump is not in the current selected inventory')
+    path = source_path(config, row)
+    result = inspect(path)
+    source_path(config, row)
+    meta = json.loads(row['metadata'])
+    meta['schema'] = result
+    with database(config) as db:
+        db.execute('UPDATE files SET metadata=? WHERE id=?', (json.dumps(meta), file_id))
+        audit(db, 'worker', 'inspect-sql-schema', str(file_id))
+    progress(config, job, len(result['tables']), 'SQL schema inspected without executing SQL')
 
 
 def match(config, job=None, from_scan=False):

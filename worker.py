@@ -16,9 +16,11 @@ def process_one(config):
     try:
         payload = json.loads(job['payload'])
         if job['kind'] == 'scan':
-            engine.scan(config, job['id'])
+            engine.scan(config, job['id'], payload.get('folders'))
         elif job['kind'] == 'match':
             engine.match(config, job['id'])
+        elif job['kind'] == 'inspect_sql':
+            engine.inspect_sql(config, int(payload['file_id']), job['id'])
         elif job['kind'] == 'prepare':
             engine.prepare(config, payload['uid'], int(payload['report_id']), job['id'])
         elif job['kind'] == 'export':
