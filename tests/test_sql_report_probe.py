@@ -20,12 +20,12 @@ class SQLReportProbeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             filename = Path(tmp) / 'synthetic.sql'
             values = ['NULL'] * 28
-            values[4] = "'FINDINGS: synthetic\\\\nIMPRESSION: synthetic'"
+            values[5] = "'FINDINGS: synthetic\\\\nIMPRESSION: synthetic'"
             filename.write_text('INSERT INTO ' + chr(96) + 'labdataex' + chr(96) + ' VALUES (' + ','.join(values) + ');\n')
             counts, scanned = probe(filename)
             self.assertGreater(scanned, 0)
             self.assertEqual(counts['labdataex.rows'], 1)
-            self.assertEqual(counts['labdataex.processedresult.FINDINGS:'], 1)
+            self.assertEqual(counts['labdataex.candidate_narrative_column_6.FINDINGS:'], 1)
             self.assertFalse(any('synthetic' in key for key in counts))
 
     def test_wrong_width_not_counted(self):
