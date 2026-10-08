@@ -14,6 +14,7 @@ from PIL import Image
 from werkzeug.security import check_password_hash
 
 import engine
+import sql_gui_candidates
 from store import audit, database, enqueue, initialize, token
 
 
@@ -163,6 +164,22 @@ def create_app(config):
         with database(config) as db:
             rows = [dict(r) for r in db.execute("SELECT id,path FROM files WHERE kind='report' AND active=1 AND status='ok' AND path LIKE ? LIMIT 100", (q,))]
         return jsonify(rows)
+
+    @app.get('/api/study/<uid>/sql-candidates')
+    def sql_candidates(uid):
+        try:
+            rows, count = sql_gui_candidates.candidates(config, uid)
+        except LookupError:
+            abort(404)
+        return jsonify(candidates=rows, total=count, read_only=True)
+
+    @app.get('/api/study/<uid>/sql-candidate/<token>')
+    def sql_candidate_text(uid, token):
+        try:
+            narrative = sql_gui_candidates.report_text(config, uid, token)
+        except LookupError:
+            abort(404)
+        return jsonify(text=narrative, read_only=True)
 
     @app.get('/api/study/<uid>')
     def study_detail(uid):
