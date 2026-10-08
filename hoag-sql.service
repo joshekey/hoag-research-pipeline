@@ -13,6 +13,21 @@ ExecStart=/opt/hoag-research/venv/bin/python /opt/hoag-research/sql_broker.py
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
+# Only DAC_READ_SEARCH is retained to traverse the 0700 hoag-indexer state
+# directory and read its root-owned 0600 SQL index; no administrative caps.
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+AmbientCapabilities=
+PrivateNetwork=yes
+IPAddressDeny=any
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
