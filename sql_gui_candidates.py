@@ -1,37 +1,45 @@
-"""Read-only SQL narrative candidates for an authenticated hospital-only review panel.
+"""Authenticated dashboard-side SQL candidate client.
 
-Not linked to existing TXT prepare/approval/export pipelines. Never auto-associates
-a narrative with a DICOM study. No patient values appear in response metadata.
+Validates study membership and local DICOM identity before making a fixed
+Unix-socket request. Never opens root-owned SQL files from dashboard process.
 """
-import hashlib
-import hmac
 import json
-import re
+import socket
 import sqlite3
-
+from pathlib import Path
 import pydicom
 import engine
-from pathlib import Path
+from strict_identity_match import normalize_date, normalize_name
 
-from strict_identity_match import evaluate, extract_header, normalize_date, normalize_name
-from sql_dicom_pilot import regions, modalities, text
+SOCKET = "/run/hoag-sql/control.sock"
 
+def request_broker(body):
+    payload = (json.dumps(body) + "\n").encode("utf-8")
+    if len(payload) > 4096:
+        raise ValueError("SQL broker request too large")
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(15)
+            connection.connect(SOCKET)
+            connection.sendall(payload)
+            response = bytearray()
+            while len(response) <= 3 * 1024 * 1024:
+                block = connection.recv(32768)
+                if not block:
+                    break
+                response.extend(block)
+                if response.endswith(b"\n"):
+                    break
+        if len(response) > 3 * 1024 * 1024 or not response.endswith(b"\n"):
+            raise ValueError("SQL broker response exceeded limit")
+        answer = json.loads(response)
+    except (OSError, ValueError):
+        raise ValueError("SQL report broker unavailable or returned invalid response") from None
+    if "error" in answer:
+        raise ValueError(answer["error"])
+    return answer
 
-def index_path(config):
-    path = Path(config["state_dir"]) / "sql-private" / "reports-v2.sqlite"
-    if path.is_symlink() or not path.is_file():
-        raise ValueError("Restricted SQL report index unavailable")
-    if path.stat().st_mode & 0o077:
-        raise ValueError("SQL report index permissions are not restricted")
-    return path
-
-
-def key_for(config, report_id):
-    return hmac.new(config["secret_key"].encode("utf-8"), b"sql-candidate:" + report_id,
-                    hashlib.sha256).hexdigest()[:32]
-
-
-def candidates(config, uid):
+def study_request(config, uid):
     catalog = Path(config["state_dir"]) / "workflow.sqlite"
     with sqlite3.connect(catalog.as_uri() + "?mode=ro", uri=True) as db:
         db.row_factory = sqlite3.Row
@@ -45,68 +53,31 @@ def candidates(config, uid):
                        AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=?""",
                        (uid,)).fetchall()
     if not instances:
-        raise ValueError("No active study instances")
-    # Cross-instance identity consistency is mandatory.
+        raise ValueError("No active DICOM instances")
     metas = [json.loads(row["metadata"]) for row in instances]
-    identities = {(m.get("PatientName", ""), m.get("PatientBirthDate", ""),
-                   m.get("PatientID", "")) for m in metas}
+    identities = {(m.get("PatientName", ""), m.get("PatientID", ""),
+                   m.get("IssuerOfPatientID", "")) for m in metas}
     if len(identities) != 1:
-        raise ValueError("DICOM patient metadata conflict")
-    # PatientBirthDate is indexed in the enhanced build's DICOM metadata.
-    name = metas[0].get("PatientName", "") or study["name"]
-    # The current HOAG catalog does not store DOB; read only one verified source header.
+        raise ValueError("Conflicting indexed DICOM patient identities")
+    # Source path validation preserves HOAG's read-only source protections.
     source = engine.source_path(config, instances[0])
-    ds = pydicom.dcmread(source, stop_before_pixels=True, specific_tags=["PatientName", "PatientBirthDate"])
+    ds = pydicom.dcmread(source, stop_before_pixels=True,
+                        specific_tags=["PatientName", "PatientBirthDate"])
+    name = str(ds.get("PatientName", ""))
+    if normalize_name(name) != normalize_name(study["name"]):
+        raise ValueError("DICOM source identity differs from catalog")
     dob = str(ds.get("PatientBirthDate", ""))
-    if normalize_name(str(ds.get("PatientName", ""))) != normalize_name(name):
-        raise ValueError("DICOM name differs from indexed study")
-    if not normalize_name(name) or not normalize_date(dob):
-        raise ValueError("Patient name or DOB missing from DICOM catalog")
-    study_date = normalize_date(study["date"])
-    study_mods = {m.strip() for m in text(study["modality"]).upper().split(",") if m.strip()}
-    # Study description not guaranteed in stored catalog; the explicit
-    # procedure consistency signal is unknown until separate review.
-    found = []
-    with sqlite3.connect(index_path(config).as_uri() + "?mode=ro", uri=True) as db:
-        for report_id, narrative, procedure, result_date in db.execute(
-                "SELECT report_id,text,procedure_name,result_date FROM narratives"):
-            header = extract_header(narrative)
-            if not header["name"] or not header["dob"]:
-                continue
-            if header["name"] != normalize_name(name) or header["dob"] != normalize_date(dob):
-                continue
-            checks = evaluate(name, dob, study_date, narrative, result_date=result_date)
-            sql_mods = modalities(procedure)
-            if study_mods and sql_mods and not (study_mods & sql_mods):
-                mod_status = "conflict"
-            elif study_mods and sql_mods:
-                mod_status = "compatible"
-            else:
-                mod_status = "unknown"
-            found.append({
-                "token": key_for(config, report_id),
-                "name_dob": True,
-                "exam_date_verified": bool(checks["checks"]["exam_date"]),
-                "result_date_matches": bool(checks["result_date_only"]),
-                "modality": mod_status,
-                "anatomy": "requires image/procedure comparison",
-                "review_required": True,
-            })
-    found.sort(key=lambda r: (not r["exam_date_verified"], not r["result_date_matches"],
-                              r["modality"] != "compatible", r["token"]))
-    return found[:30], len(found)
+    date = normalize_date(study["date"])
+    if not normalize_name(name) or not normalize_date(dob) or not date:
+        raise ValueError("Study identity or date missing")
+    return {"uid": uid, "name": name, "dob": dob, "date": date,
+            "modality": str(study["modality"] or "")}
 
+def candidates(config, uid):
+    result = request_broker({"action": "list", **study_request(config, uid)})
+    return result["candidates"], result["total"]
 
 def report_text(config, uid, token):
-    # Tokens can only resolve for exact-DOB/name candidates of this study.
-    if not re.fullmatch(r"[a-f0-9]{32}", token):
-        raise LookupError("Candidate unavailable")
-    rows, _ = candidates(config, uid)
-    if not any(row["token"] == token for row in rows):
-        raise LookupError("Candidate unavailable")
-    with sqlite3.connect(index_path(config).as_uri() + "?mode=ro", uri=True) as db:
-        for report_id, narrative in db.execute("SELECT report_id,text FROM narratives"):
-            if hmac.compare_digest(key_for(config, report_id), token):
-                value = narrative.decode("utf-8", errors="replace") if isinstance(narrative, bytes) else str(narrative)
-                return value
-    raise LookupError("Candidate unavailable")
+    result = request_broker({"action": "preview",
+                            **study_request(config, uid), "token": token})
+    return result["text"]
