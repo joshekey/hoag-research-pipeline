@@ -4,7 +4,7 @@ from collections import Counter
 from pathlib import Path
 HEADER = re.compile(rb'^\s*INSERT\s+(?:IGNORE\s+)?INTO\s+(?:(?:\x60[^\x60]+\x60|[A-Za-z_]\w*)\s*\.\s*)?(?:\x60([^\x60]+)\x60|([A-Za-z_]\w*))\s+VALUES\s*', re.I)
 TARGETS = {
-    'labdataex': (23, (('processedresult', 4),)),
+    'labdataex': (25, (('processedresult', 4),)),
     'hl7labnotes': (8, (('notes', 1),)),
     'electronichl7content': (13, (('hl7message', 1), ('newHL7Message', 9))),
     'recelectroniclabresults': (7, (('processedResult', 1),)),
