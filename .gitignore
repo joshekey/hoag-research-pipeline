@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.sqlite*
+*.db
+*.sql
+*.dcm
+data/
+exports/
+*.credentials
+.env
