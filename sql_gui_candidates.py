@@ -8,6 +8,9 @@ import hmac
 import json
 import re
 import sqlite3
+
+import pydicom
+import engine
 from pathlib import Path
 
 from strict_identity_match import evaluate, extract_header, normalize_date, normalize_name
@@ -38,20 +41,25 @@ def candidates(config, uid):
         study = db.execute("SELECT * FROM studies WHERE uid=?", (uid,)).fetchone()
         if study is None:
             raise LookupError("Study not in catalog")
-        instances = db.execute("""SELECT metadata FROM files WHERE kind='dicom' AND active=1
+        instances = db.execute("""SELECT * FROM files WHERE kind='dicom' AND active=1
                        AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=?""",
                        (uid,)).fetchall()
     if not instances:
         raise ValueError("No active study instances")
     # Cross-instance identity consistency is mandatory.
-    metas = [json.loads(row[0]) for row in instances]
+    metas = [json.loads(row["metadata"]) for row in instances]
     identities = {(m.get("PatientName", ""), m.get("PatientBirthDate", ""),
                    m.get("PatientID", "")) for m in metas}
     if len(identities) != 1:
         raise ValueError("DICOM patient metadata conflict")
     # PatientBirthDate is indexed in the enhanced build's DICOM metadata.
     name = metas[0].get("PatientName", "") or study["name"]
-    dob = metas[0].get("PatientBirthDate", "")
+    # The current HOAG catalog does not store DOB; read only one verified source header.
+    source = engine.source_path(config, instances[0])
+    ds = pydicom.dcmread(source, stop_before_pixels=True, specific_tags=["PatientName", "PatientBirthDate"])
+    dob = str(ds.get("PatientBirthDate", ""))
+    if normalize_name(str(ds.get("PatientName", ""))) != normalize_name(name):
+        raise ValueError("DICOM name differs from indexed study")
     if not normalize_name(name) or not normalize_date(dob):
         raise ValueError("Patient name or DOB missing from DICOM catalog")
     study_date = normalize_date(study["date"])
