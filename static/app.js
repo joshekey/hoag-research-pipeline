@@ -66,6 +66,7 @@ async function queue(kind,payload={}) {try{const r=await api('/api/jobs',{kind,p
 async function openStudy(value) {
  const generation=++reviewRequest;uid=value;
  try{const d=await api('/api/study/'+encodeURIComponent(value));if(generation!==reviewRequest)return;
+ $('sql-candidate-list').replaceChildren();$('sql-candidate-original').value='';$('sql-candidate-summary').textContent='Select Find SQL candidates to inspect SQL-backed reports. No match is approved automatically.';
  $('review').hidden=false;$('review-title').textContent=(d.study.accession||'No accession')+' | '+d.study.subject;$('review-state').textContent=labels[d.study.state]||d.study.state;
  if(d.study.last_error)notice(d.study.last_error,true);
  $('original').value=d.original_report;$('sanitized').value=d.study.sanitized||'';$('masks').value=d.study.redactions||'[]';$('review-note').value=d.study.review_note||'';$('images-reviewed').checked=false;$('report-reviewed').checked=false;
@@ -73,6 +74,28 @@ async function openStudy(value) {
  $('image-choice').replaceChildren();d.images.forEach((image,i)=>{const o=el('option','Instance '+(i+1)+' | '+JSON.parse(image.metadata).Modality);o.value=image.id;$('image-choice').append(o);});$('frame').value=0;
  highlight();$('review').scrollIntoView({behavior:'smooth'});if(!d.original_report&&d.candidates.length)await candidateText();if(d.images.length)await viewImage();
  }catch(e){notice(e.message,true);}
+}
+async function loadSQLCandidates() {
+ const study=uid;
+ if(!study)return;
+ const data=await api('/api/study/'+encodeURIComponent(study)+'/sql-candidates');
+ if(study!==uid)return;
+ $('sql-candidate-original').value='';
+ $('sql-candidate-list').replaceChildren();
+ $('sql-candidate-summary').textContent=data.total+' name/DOB candidate(s); showing up to '+data.candidates.length+'. No clinical association approved.';
+ data.candidates.forEach((item,i)=>{
+   const line=el('div',undefined,'card');
+   const evidence='Candidate '+(i+1)+' | Exam date verified: '+(item.exam_date_verified?'yes':'no')+
+     ' | Result date matches: '+(item.result_date_matches?'yes':'no')+
+     ' | Modality: '+item.modality+' | Anatomy: '+item.anatomy;
+   line.append(el('p',evidence));
+   line.append(button('Preview original SQL report',safely(async()=>{
+     const selected=uid;
+     const response=await api('/api/study/'+encodeURIComponent(selected)+'/sql-candidate/'+item.token);
+     if(uid===selected)$('sql-candidate-original').value=response.text;
+   })));
+   $('sql-candidate-list').append(line);
+ });
 }
 function addReport(r) {const o=el('option',(r.reason?r.reason+' - ':'Manual selection - ')+r.path);o.value=r.id;$('report-choice').append(o);}
 async function candidateText() {const selected=$('report-choice').value;const study=uid;if(!selected){$('original').value='';return;}const report=await api('/api/report/'+selected);if(selected===$('report-choice').value&&study===uid)$('original').value=report.text;}
@@ -103,6 +126,7 @@ $('health-refresh').onclick=health;$('refresh').onclick=()=>{refresh();health();
 for(const id of ['search','filter-state','filter-modality','filter-from','filter-to','filter-sort','filter-direction'])$(id).onchange=safely(()=>{offset=0;return list();});
 $('filter-clear').onclick=safely(()=>{for(const id of ['search','filter-state','filter-modality','filter-from','filter-to'])$(id).value='';offset=0;return list();});
 $('previous').onclick=safely(()=>{offset=Math.max(0,offset-100);return list();});$('next').onclick=safely(()=>{offset+=100;return list();});$('page-number').onchange=safely(()=>{const page=Number($('page-number').value);offset=(Math.max(1,Math.min(Math.ceil(total/100)||1,Math.floor(page)||1))-1)*100;return list();});
+$('sql-candidate-refresh').onclick=safely(loadSQLCandidates);
 $('prepare').onclick=()=>queue('prepare',{uid,report_id:Number($('report-choice').value)});$('view').onclick=viewImage;$('image-choice').onchange=()=>{$('frame').value=0;viewImage();};$('report-choice').onchange=safely(async()=>{$('report-reviewed').checked=false;$('sanitized').value='';highlight();await candidateText();});
 $('find-report').onclick=safely(async()=>{const reports=await api('/api/reports?q='+encodeURIComponent($('report-search').value));$('report-choice').replaceChildren();reports.forEach(addReport);$('report-reviewed').checked=false;$('sanitized').value='';highlight();await candidateText();});
 $('sanitized').oninput=()=>{$('report-reviewed').checked=false;highlight();};
