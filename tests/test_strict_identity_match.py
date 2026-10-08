@@ -10,6 +10,20 @@ class StrictIdentityTests(unittest.TestCase):
         self.assertTrue(result["candidate"])
         self.assertTrue(result["requires_human_review"])
 
+    def test_sqlite_blob_dates_and_narrative(self):
+        report = self.report.encode("utf-8")
+        result = evaluate("EXAMPLE^ALICE", b"19800203", b"20210902",
+                          report, result_date=b"2021-09-02")
+        self.assertTrue(result["candidate"])
+        self.assertTrue(result["checks"]["exam_date"])
+
+    def test_result_date_blob_is_not_exam_date(self):
+        text = b"PATIENT NAME: EXAMPLE, ALICE MRN: OTHER DOB: 2/3/1980"
+        result = evaluate("EXAMPLE^ALICE", "19800203", "20210902",
+                          text, result_date=b"2021-09-02")
+        self.assertFalse(result["candidate"])
+        self.assertTrue(result["result_date_only"])
+
     def test_wrong_name_rejected(self):
         result = evaluate("DIFFERENT^ALICE", "19800203", "20210902", self.report)
         self.assertFalse(result["candidate"])
