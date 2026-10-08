@@ -13,6 +13,8 @@ install -d -o root -g hoag-indexer -m 0750 /etc/hoag-research
 python3 -m venv /opt/hoag-research/venv
 /opt/hoag-research/venv/bin/pip install -r "$ROOT/requirements.txt"
 /opt/hoag-research/venv/bin/pip install 'https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl'
+# The service account must be able to traverse and read the root-installed runtime.
+chmod -R a+rX /opt/hoag-research/venv
 systemctl stop hoag-dashboard.service hoag-worker.service 2>/dev/null || true
 for file in manage.py store.py engine.py worker.py webapp.py configure.py sql_schema.py config.example.json; do
   install -m 0644 "$ROOT/$file" "/opt/hoag-research/$file"
