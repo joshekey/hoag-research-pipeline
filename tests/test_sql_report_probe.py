@@ -19,7 +19,7 @@ class SQLReportProbeTests(unittest.TestCase):
     def test_aggregate_no_values(self):
         with tempfile.TemporaryDirectory() as tmp:
             filename = Path(tmp) / 'synthetic.sql'
-            values = ['NULL'] * 23
+            values = ['NULL'] * 25
             values[4] = "'FINDINGS: synthetic\\\\nIMPRESSION: synthetic'"
             filename.write_text('INSERT INTO ' + chr(96) + 'labdataex' + chr(96) + ' VALUES (' + ','.join(values) + ');\n')
             counts, scanned = probe(filename)
