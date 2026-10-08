@@ -58,6 +58,8 @@ def initialize(config):
         CREATE TABLE IF NOT EXISTS report_keys (
           key TEXT NOT NULL, report INTEGER REFERENCES files(id), reason TEXT NOT NULL,
           PRIMARY KEY(key,report,reason));
+        CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT OR IGNORE INTO settings VALUES ('scan_complete','0');
         CREATE TABLE IF NOT EXISTS jobs (
           id INTEGER PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL,
           state TEXT NOT NULL DEFAULT 'queued', progress INTEGER NOT NULL DEFAULT 0,

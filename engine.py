@@ -77,6 +77,9 @@ def read_report(config, row):
 
 
 def scan(config, job=None):
+    with database(config) as db:
+        db.execute("UPDATE settings SET value='0' WHERE key='scan_complete'")
+        db.execute("UPDATE studies SET state='needs_review', approved_fingerprint=NULL, approved_hash=NULL")
     roots = [checked_root(config, r) for r in config['source_roots']]
     for i, root in enumerate(roots):
         if any(root == other or root.is_relative_to(other) or other.is_relative_to(root)
@@ -84,9 +87,6 @@ def scan(config, job=None):
             raise ValueError('Source roots overlap')
     run = str(uuid.uuid4())
     count = 0
-    # Any scan invalidates releases before work starts, including a partial/failed scan.
-    with database(config) as db:
-        db.execute("UPDATE studies SET state='needs_review', approved_fingerprint=NULL, approved_hash=NULL")
     for root in roots:
         def onerror(error):
             raise OSError('Source traversal failed') from None
@@ -161,12 +161,21 @@ def scan(config, job=None):
         for row in db.execute('SELECT DISTINCT root FROM files').fetchall():
             if row['root'] not in [str(r) for r in roots]:
                 db.execute('UPDATE files SET active=0 WHERE root=?', (row['root'],))
-    match(config, job)
+    match(config, job, from_scan=True)
+    with database(config) as db:
+        db.execute("UPDATE settings SET value='1' WHERE key='scan_complete'")
     progress(config, job, count, 'Scan and candidate matching completed')
 
 
-def match(config, job=None):
+def require_scan(db):
+    if db.execute("SELECT value FROM settings WHERE key='scan_complete'").fetchone()[0] != '1':
+        raise ValueError('A complete successful source scan is required before matching, review, or export')
+
+
+def match(config, job=None, from_scan=False):
     with database(config) as db:
+        if not from_scan:
+            require_scan(db)
         db.execute("UPDATE studies SET state='needs_review',approved_fingerprint=NULL,approved_hash=NULL")
         db.execute('DELETE FROM report_keys')
         for row in db.execute("SELECT * FROM files WHERE kind='report' AND active=1 AND status='ok'"):
@@ -248,6 +257,7 @@ def sanitize_report(text, identifiers, nlp=None):
 
 def prepare(config, uid, report_id, job=None, nlp=None):
     with database(config) as db:
+        require_scan(db)
         study = db.execute('SELECT * FROM studies WHERE uid=?', (uid,)).fetchone()
         report = db.execute("SELECT * FROM files WHERE id=? AND kind='report' AND active=1 AND status='ok'", (report_id,)).fetchone()
         if not study or not report or study['state'] == 'conflict':
@@ -285,6 +295,7 @@ def approve(config, uid, clean, rectangles, note, actor='admin'):
     with database(config) as db:
         db.execute('BEGIN IMMEDIATE')
         idle(db)
+        require_scan(db)
         study = db.execute('SELECT * FROM studies WHERE uid=?', (uid,)).fetchone()
         if not study or study['state'] != 'review':
             raise ValueError('Prepare a report before approving')
@@ -392,6 +403,7 @@ def anonymize_dataset(config, ds, subject, rectangles):
 def export_study(config, uid, job=None):
     output = checked_root(config, config['output_root'], output=True)
     with database(config) as db:
+        require_scan(db)
         study = db.execute('SELECT * FROM studies WHERE uid=?', (uid,)).fetchone()
         if not study or study['state'] != 'approved' or study['fingerprint'] != study['approved_fingerprint']:
             raise ValueError('Study has not passed report and image review')

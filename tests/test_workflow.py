@@ -212,6 +212,16 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             engine.checked_root(self.config, self.sources[0], output=True)
 
+    def test_failed_scan_blocks_matching_and_export(self):
+        self.approve()
+        with patch('engine.checked_root', side_effect=ValueError('Share offline')):
+            with self.assertRaises(ValueError):
+                engine.scan(self.config)
+        with self.assertRaisesRegex(ValueError, 'complete successful'):
+            engine.match(self.config)
+        with self.assertRaisesRegex(ValueError, 'complete successful'):
+            engine.export_study(self.config, self.uid)
+
     def test_queue_and_approval_exclusion(self):
         self.prepare()
         enqueue(self.config, 'match')
