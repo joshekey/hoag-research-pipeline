@@ -61,6 +61,7 @@ def query(data):
         raise ValueError("Invalid candidate token")
     require_index()
     matches = []
+    key = secret()
     # Index is finalized/read-only. Root-only DB remains owned by root.
     uri = INDEX.as_uri() + "?mode=ro"
     with sqlite3.connect(uri, uri=True) as db:
@@ -69,7 +70,7 @@ def query(data):
             header = extract_header(narrative)
             if header["name"] != name or header["dob"] != dob:
                 continue
-            token = report_token(secret_value, uid, rid)
+            token = report_token(key, uid, rid)
             if data["action"] == "preview":
                 if not hmac.compare_digest(token, wanted_token):
                     continue
@@ -105,8 +106,6 @@ def handle(data):
         return {"error": "SQL broker could not complete request"}
 
 def main():
-    global secret_value
-    secret_value = secret()
     account = pwd.getpwnam("hoag-indexer")
     os.umask(0o077)
     directory = Path(SOCKET).parent
