@@ -8,3 +8,9 @@ data/
 exports/
 *.credentials
 .env
+config.json
+*.key
+*.pem
+*.credentials
+*.log
+.pytest_cache/

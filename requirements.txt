@@ -1,1 +1,11 @@
 pydicom==3.0.2
+dicom-anonymizer==2.1.0
+Flask==3.1.3
+waitress==3.0.2
+numpy==2.4.6
+Pillow==12.3.0
+presidio-analyzer==2.2.364
+spacy==3.8.16
+pylibjpeg==2.1.0
+pylibjpeg-libjpeg==2.3.0
+pylibjpeg-openjpeg==2.5.0

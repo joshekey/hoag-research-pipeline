@@ -1,6 +1,6 @@
 [Unit]
-Description=HOAG research workflow web application
-After=network-online.target
+Description=HOAG research processing worker
+After=network-online.target remote-fs.target
 Wants=network-online.target
 
 [Service]
@@ -8,15 +8,14 @@ User=hoag-indexer
 Group=hoag-indexer
 UMask=0077
 WorkingDirectory=/opt/hoag-research
-ExecStart=/opt/hoag-research/venv/bin/python /opt/hoag-research/manage.py web
+ExecStart=/opt/hoag-research/venv/bin/python /opt/hoag-research/manage.py worker
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
-ProtectSystem=strict
+ProtectSystem=full
 ProtectHome=yes
 PrivateTmp=yes
-ReadWritePaths=/var/lib/hoag-research
-MemoryMax=4G
+MemoryMax=6G
 
 [Install]
 WantedBy=multi-user.target

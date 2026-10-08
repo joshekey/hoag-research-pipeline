@@ -1,0 +1,13 @@
+{
+  "source_roots": ["/mnt/hoag-bulk", "/mnt/hoag-imaging"],
+  "output_root": "/mnt/hoag-output",
+  "state_dir": "/var/lib/hoag-research",
+  "report_encoding": "utf-8-sig",
+  "max_report_bytes": 10485760,
+  "max_dicom_bytes": 536870912,
+  "minimum_free_bytes": 5368709120,
+  "require_mounts": true,
+  "username": "admin",
+  "password_hash": "SET_BY_INSTALLER",
+  "secret_key": "SET_BY_INSTALLER"
+}
