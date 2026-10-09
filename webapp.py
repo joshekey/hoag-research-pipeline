@@ -16,6 +16,7 @@ from werkzeug.security import check_password_hash
 import engine
 import sql_gui_candidates
 import sql_association
+from report_format import format_report
 from store import audit, database, enqueue, initialize, token
 
 
@@ -180,7 +181,9 @@ def create_app(config):
             narrative = sql_gui_candidates.report_text(config, uid, token)
         except LookupError:
             abort(404)
-        return jsonify(text=narrative, read_only=True)
+        readable, format_status = format_report(narrative)
+        return jsonify(text=narrative, formatted=readable,
+                       format_status=format_status, read_only=True)
 
     @app.post('/api/study/<uid>/sql-association')
     def confirm_sql_association(uid):
