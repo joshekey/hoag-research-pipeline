@@ -1,14 +1,15 @@
-"""HOAG single-study DICOMweb pilot API — no public server or login.
+"""HOAG catalog-scoped DICOMweb viewer API — reuses dashboard login.
 
 Every route is registered UNDER the existing Flask application's mandatory
 Basic authentication middleware. No STOW/upload or unrestricted study search.
-The allowlist is a root-controlled, read-only single-UID file, NOT browser input.
+The root-controlled selector enables a single UID or the complete eligible indexed catalog.
 Original DICOM may contain PHI; do not log response bodies or request paths.
 NOT a de-identified export, not final clinical review approval.
 """
 import io
 import json
 import re
+import sqlite3
 from collections import Counter
 from pathlib import Path
 
@@ -28,15 +29,44 @@ MAX_INSTANCE_BYTES = 128 * 1024 * 1024
 ALLOWLIST = Path("/etc/hoag-research/ohif-pilot-study.uid")
 
 
-def enabled_study():
-    if not ALLOWLIST.is_file() or ALLOWLIST.is_symlink():
+def allowed_studies(config):
+    """Root-controlled selector: one pilot UID, or explicitly enabled ALL_INDEXED.
+
+    ALL_INDEXED includes only active complete catalog studies; each DICOM
+    retrieval is still independently checked against its series/SOP records.
+    A missing/invalid selector fails closed. This endpoint inherits HOAG login.
+    """
+    if ALLOWLIST.is_symlink() or not ALLOWLIST.is_file():
         abort(404)
     if ALLOWLIST.stat().st_size > 128:
         abort(404)
-    uid = ALLOWLIST.read_text().strip()
-    if not UID_RE.fullmatch(uid):
+    selector = ALLOWLIST.read_text().strip()
+    if selector != "ALL_INDEXED" and not UID_RE.fullmatch(selector):
         abort(404)
-    return uid
+    catalog = Path(config["state_dir"]) / "workflow.sqlite"
+    with sqlite3.connect(catalog.as_uri() + "?mode=ro", uri=True) as db:
+        ready = db.execute("SELECT value FROM settings WHERE key='scan_complete'").fetchone()
+        if not ready or ready[0] != "1":
+            abort(404)
+        if db.execute("SELECT 1 FROM jobs WHERE state IN ('queued','running') LIMIT 1").fetchone():
+            abort(404)
+        rows = db.execute("""SELECT s.uid FROM studies s WHERE s.count > 0
+            AND s.state NOT IN ('conflict','needs_review')
+            AND (SELECT count(*) FROM files f WHERE f.kind='dicom' AND f.active=1
+                AND f.status='ok' AND json_extract(f.metadata,'$.StudyInstanceUID')=s.uid)=s.count
+            ORDER BY s.uid""").fetchall()
+    active = [row[0] for row in rows]
+    if selector == "ALL_INDEXED":
+        if not active:
+            abort(404)
+        return active
+    return [selector] if selector in active else []
+
+
+def authorized_uid(config, requested_uid):
+    if requested_uid not in allowed_studies(config):
+        abort(404)
+    return requested_uid
 
 
 def dicom_json(data):
@@ -44,10 +74,8 @@ def dicom_json(data):
 
 
 def get_index(config, study):
-    allow = enabled_study()
-    if study != allow:
-        abort(404)
-    return scoped_catalog(config, study, allow)
+    authorized_uid(config, study)
+    return scoped_catalog(config, study, study)
 
 
 def checked_record(config, study, series, sop):
@@ -99,11 +127,13 @@ def create_blueprint(config):
 
     @bp.get(ROOT + "/studies")
     def studies():
-        uid = enabled_study()
-        indexed = get_index(config, uid)
-        return dicom_json([qido_study(
-            uid, len({s for s, _ in indexed}), len(indexed)
-        )])
+        result = []
+        for uid in allowed_studies(config):
+            indexed = get_index(config, uid)
+            result.append(qido_study(
+                uid, len({s for s, _ in indexed}), len(indexed)
+            ))
+        return dicom_json(result)
 
     @bp.get(ROOT + "/studies/<uid>/series")
     def series(uid):
