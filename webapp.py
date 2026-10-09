@@ -9,11 +9,16 @@ from pathlib import Path
 
 import numpy as np
 import pydicom
-from flask import Flask, Response, abort, jsonify, render_template, request, session
+from flask import Flask, Response, abort, jsonify, render_template, request, session, send_from_directory
 from PIL import Image
 from werkzeug.security import check_password_hash
 
 import engine
+import sql_gui_candidates
+import sql_association
+import sql_prepare_review
+from report_format import format_report
+from ohif_poc.clinical_dicomweb import create_blueprint as ohif_blueprint, authorized_uid
 from store import audit, database, enqueue, initialize, token
 
 
@@ -23,6 +28,8 @@ def create_app(config):
     app.secret_key = config['secret_key']
     app.config.update(MAX_CONTENT_LENGTH=12 * 1024 * 1024, SESSION_COOKIE_HTTPONLY=True,
                       SESSION_COOKIE_SAMESITE='Strict', SESSION_COOKIE_SECURE=config.get('secure_cookies', True))
+
+    app.register_blueprint(ohif_blueprint(config))
 
     @app.before_request
     def protect():
@@ -36,8 +43,15 @@ def create_app(config):
     def headers(response):
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-Frame-Options'] = 'DENY'
-        response.headers['Content-Security-Policy'] = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' blob:; frame-ancestors 'none'"
+        if request.path == '/viewer' or request.path == '/app-config.js' or request.path.endswith(('.js', '.css', '.wasm', '.svg', '.woff2')):
+            response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+            response.headers['Content-Security-Policy'] = ("default-src 'self' blob: data:; script-src 'self' 'wasm-unsafe-eval'; "
+                "worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; "
+                "font-src 'self' data:; connect-src 'self'; frame-ancestors 'self'")
+        else:
+            response.headers['X-Frame-Options'] = 'DENY'
+            response.headers['Content-Security-Policy'] = ("default-src 'self'; style-src 'self'; script-src 'self'; "
+                "img-src 'self' blob:; frame-src 'self'; frame-ancestors 'none'")
         return response
 
     @app.errorhandler(ValueError)
@@ -52,6 +66,32 @@ def create_app(config):
     def index():
         session.setdefault('csrf', secrets.token_urlsafe(32))
         return render_template('index.html', csrf=session['csrf'])
+
+    OHIF_ASSETS = Path('/opt/hoag-research/ohif-assets')
+
+    @app.get('/viewer')
+    def ohif_viewer():
+        authorized_uid(config, request.args.get('StudyInstanceUIDs', ''))
+        if not (OHIF_ASSETS / 'index.html').is_file():
+            abort(404)
+        return send_from_directory(OHIF_ASSETS, 'index.html')
+
+    @app.get('/<path:ohif_asset>')
+    def ohif_static(ohif_asset):
+        if not ohif_asset.endswith(('.js', '.css', '.wasm', '.woff', '.woff2',
+                                     '.svg', '.png', '.ico', '.json', '.map')):
+            abort(404)
+        if not OHIF_ASSETS.is_dir():
+            abort(404)
+        return send_from_directory(OHIF_ASSETS, ohif_asset)
+
+    @app.get('/api/study/<uid>/ohif-status')
+    def ohif_status(uid):
+        try:
+            authorized_uid(config, uid)
+        except Exception:
+            return jsonify(enabled=False)
+        return jsonify(enabled=(OHIF_ASSETS / 'index.html').is_file())
 
     @app.get('/api/status')
     def status():
@@ -163,6 +203,44 @@ def create_app(config):
         with database(config) as db:
             rows = [dict(r) for r in db.execute("SELECT id,path FROM files WHERE kind='report' AND active=1 AND status='ok' AND path LIKE ? LIMIT 100", (q,))]
         return jsonify(rows)
+
+    @app.get('/api/study/<uid>/sql-candidates')
+    def sql_candidates(uid):
+        try:
+            rows, count = sql_gui_candidates.candidates(config, uid)
+        except LookupError:
+            abort(404)
+        return jsonify(candidates=rows, total=count, read_only=True)
+
+    @app.get('/api/study/<uid>/sql-candidate/<token>')
+    def sql_candidate_text(uid, token):
+        try:
+            narrative = sql_gui_candidates.report_text(config, uid, token)
+        except LookupError:
+            abort(404)
+        readable, format_status = format_report(narrative)
+        return jsonify(text=narrative, formatted=readable,
+                       format_status=format_status, read_only=True)
+
+    @app.post('/api/study/<uid>/sql-association')
+    def confirm_sql_association(uid):
+        body = request.get_json(silent=True) or {}
+        if body.get('confirm') is not True:
+            raise ValueError('Explicit reviewer confirmation required')
+        return jsonify(sql_association.confirm(config, uid, body.get('token', ''),
+                         body.get('note', ''), body.get('date_verified'),
+                         body.get('conflicts_acknowledged'), config['username']))
+
+    @app.post('/api/study/<uid>/sql-draft')
+    def prepare_sql_draft(uid):
+        body = request.get_json(silent=True) or {}
+        if body.get('confirm') is not True:
+            raise ValueError('Explicit SQL draft preparation confirmation required')
+        return jsonify(sql_prepare_review.prepare_draft(config, uid, config['username']))
+
+    @app.get('/api/study/<uid>/sql-draft')
+    def read_sql_draft(uid):
+        return jsonify(sql_prepare_review.read_draft(config, uid))
 
     @app.get('/api/study/<uid>')
     def study_detail(uid):
