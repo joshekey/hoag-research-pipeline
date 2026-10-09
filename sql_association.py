@@ -39,6 +39,7 @@ def confirm(config, uid, token, note, date_verified, conflicts_acknowledged, act
     original = sql_gui_candidates.report_text(config, uid, token)
     digest = hashlib.sha256(original.encode("utf-8")).hexdigest()
     with database(config) as db:
+        db.executescript(SCHEMA)
         db.execute("BEGIN IMMEDIATE")
         idle(db)
         ready = db.execute("SELECT value FROM settings WHERE key='scan_complete'").fetchone()
@@ -47,7 +48,6 @@ def confirm(config, uid, token, note, date_verified, conflicts_acknowledged, act
         study = db.execute("SELECT fingerprint,state FROM studies WHERE uid=?", (uid,)).fetchone()
         if not study or study["state"] in ("approved", "exported"):
             raise ValueError("Cannot change a finalized study association")
-        db.executescript(SCHEMA)
         db.execute("""INSERT INTO sql_associations
           (uid,token,report_sha256,study_fingerprint,actor,confirmed_at,note,date_verified,conflicts_acknowledged)
           VALUES (?,?,?,?,?,?,?,?,?)
