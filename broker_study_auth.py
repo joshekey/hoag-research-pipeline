@@ -47,9 +47,8 @@ def authorized_study(uid, config):
     if str(ds.get("StudyInstanceUID", "")) != uid or normalize_name(ds.get("PatientName", "")) != normalize_name(name):
         raise ValueError("DICOM header/catalog mismatch")
     study_date = normalize_date(study["date"])
-    if (not study_date or normalize_date(ds.get("StudyDate", "")) != study_date
-            or not normalize_date(ds.get("PatientBirthDate", ""))):
-        raise ValueError("DICOM date missing or inconsistent")
+    if not study_date or normalize_date(ds.get("StudyDate", "")) != study_date:
+        raise ValueError("DICOM study date missing or inconsistent")
     return {"name": normalize_name(name),
             "dob": normalize_date(ds.get("PatientBirthDate", "")),
             "date": study_date,
