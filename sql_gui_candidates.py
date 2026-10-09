@@ -68,7 +68,7 @@ def study_request(config, uid):
         raise ValueError("DICOM source identity differs from catalog")
     dob = str(ds.get("PatientBirthDate", ""))
     date = normalize_date(study["date"])
-    if not normalize_name(name) or not normalize_date(dob) or not date:
+    if not normalize_name(name) or not date:
         raise ValueError("Study identity or date missing")
     return {"uid": uid, "name": name, "dob": dob, "date": date,
             "modality": str(study["modality"] or "")}
