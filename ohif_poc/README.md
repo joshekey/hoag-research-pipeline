@@ -121,3 +121,13 @@ Header-based tokens require a future secure session integration into OHIF,
 short-lived issuance, revocation, browser security tests and an approved data
 gateway before any clinical use. Unauthorized and expired-request tests are
 in `tests/test_ohif_guarded_gateway.py`.
+
+## Synthetic browser-session boundary (offline only)
+
+`synthetic_browser_session.py` demonstrates same-origin Flask session cookies
+(`Secure`, `HttpOnly`, `SameSite=Strict`) checked on EVERY synthetic QIDO/WADO
+request. No public login/issuer endpoint, clinical file loader, or network
+listener exists. Tests populate a synthetic verified identity through Flask's
+test-client session APIs. **Never expose that fixture as an identity provider.**
+The currently running OHIF localhost pilot is still unguarded synthetic data
+only; no production clinical authentication or token renewals are deployed.
