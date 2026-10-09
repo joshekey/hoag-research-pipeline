@@ -15,24 +15,24 @@ class SyntheticBrowserSessionTests(unittest.TestCase):
 
     def attach(self,principal="synthetic-reviewer",expire=False):
         token=issue(KEY,STUDY,principal,now=1000,ttl=120)
-        with self.client.session_transaction() as data:
+        with self.client.session_transaction(base_url="https://localhost") as data:
             data["_synthetic_verified_identity"]=principal
             data["_synthetic_study_capability"]=token
 
     def test_no_session_denied(self):
         with patch("ohif_poc.study_capability.time.time",return_value=1050):
-            self.assertEqual(self.client.get(ROOT+"/studies").status_code,401)
+            self.assertEqual(self.client.get(ROOT+"/studies",base_url="https://localhost").status_code,401)
 
     def test_session_scoped_study_and_image(self):
         self.attach()
         with patch("ohif_poc.study_capability.time.time",return_value=1050):
-            response=self.client.get(ROOT+"/studies")
+            response=self.client.get(ROOT+"/studies",base_url="https://localhost")
             self.assertEqual(response.status_code,200)
             self.assertEqual(response.json[0]["00201208"]["Value"][0],157)
             self.assertEqual(response.headers["Cache-Control"],"no-store")
             self.assertNotIn("Access-Control-Allow-Origin",response.headers)
             path=ROOT+"/studies/"+STUDY+"/series/"+SERIES+"/instances/"+SOPS[0]
-            self.assertEqual(self.client.get(path).status_code,200)
+            self.assertEqual(self.client.get(path,base_url="https://localhost").status_code,200)
 
     def test_expired_session_denied(self):
         self.attach()
@@ -42,17 +42,17 @@ class SyntheticBrowserSessionTests(unittest.TestCase):
     def test_other_study_denied(self):
         self.attach()
         with patch("ohif_poc.study_capability.time.time",return_value=1050):
-            self.assertEqual(self.client.get(ROOT+"/studies/1.2.999/metadata").status_code,404)
+            self.assertEqual(self.client.get(ROOT+"/studies/1.2.999/metadata",base_url="https://localhost").status_code,404)
 
     def test_no_browser_supplied_identity(self):
         with patch("ohif_poc.study_capability.time.time",return_value=1050):
             self.assertEqual(self.client.get(ROOT+"/studies",
-                headers={"X-User":"synthetic-reviewer"}).status_code,401)
+                headers={"X-User":"synthetic-reviewer"},base_url="https://localhost").status_code,401)
 
     def test_no_upload(self):
         self.attach()
         with patch("ohif_poc.study_capability.time.time",return_value=1050):
-            self.assertEqual(self.client.post(ROOT+"/studies",data=b"data").status_code,405)
+            self.assertEqual(self.client.post(ROOT+"/studies",data=b"data",base_url="https://localhost").status_code,405)
 
 if __name__=="__main__":
     unittest.main()
