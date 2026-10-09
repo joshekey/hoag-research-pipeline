@@ -3,6 +3,7 @@
 No actual patient DICOM files, identifiers, network connections, or exports.
 """
 import base64
+from copy import deepcopy
 import json
 import io
 import tempfile
@@ -100,7 +101,7 @@ class ClinicalOHIFPilotTests(unittest.TestCase):
         for syntax, media in ((JPEGLosslessSV1,"image/jpeg"),
                               (JPEG2000Lossless,"image/jp2")):
             with self.subTest(media=media):
-                ds=synthetic_dataset(SOPS[0])
+                ds=deepcopy(synthetic_dataset(SOPS[0]))
                 ds.file_meta.TransferSyntaxUID=syntax
                 ds.PixelData=encapsulate([b"FAKE_COMPRESSED_CODESTREAM"])
                 ds["PixelData"].is_undefined_length=True
