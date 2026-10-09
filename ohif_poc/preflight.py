@@ -11,7 +11,7 @@ from collections import Counter
 from pathlib import Path
 
 import pydicom
-from pydicom.uid import ExplicitVRLittleEndian, ImplicitVRLittleEndian
+from pydicom.uid import ExplicitVRLittleEndian, ImplicitVRLittleEndian, JPEGLosslessSV1, JPEG2000Lossless
 import engine
 
 REQUIRED = ("StudyInstanceUID", "SeriesInstanceUID", "SOPInstanceUID",
@@ -39,6 +39,8 @@ def check(config, uid):
     multi_frame = 0
     native_uncompressed = 0
     compressed_or_other = 0
+    supported_compressed = 0
+    unsupported_syntax = 0
     missing = Counter()
     errors = 0
     for row in rows:
@@ -65,6 +67,10 @@ def check(config, uid):
                 native_uncompressed += 1
             else:
                 compressed_or_other += 1
+                if transfer_syntax in (str(JPEGLosslessSV1), str(JPEG2000Lossless)):
+                    supported_compressed += 1
+                else:
+                    unsupported_syntax += 1
             if int(ds.get("NumberOfFrames",1) or 1)>1:
                 multi_frame+=1
         except (OSError,ValueError,pydicom.errors.InvalidDicomError,AttributeError,TypeError):
@@ -72,6 +78,8 @@ def check(config, uid):
     return {"instances_indexed":len(rows),"series_count":len(series),
             "unique_sop_instances":len(instances),"multi_frame_objects":multi_frame,
             "native_uncompressed_objects":native_uncompressed,
+            "supported_lossless_compressed_objects":supported_compressed,
+            "unsupported_transfer_syntax_objects":unsupported_syntax,
             "compressed_or_other_syntax_objects":compressed_or_other,
             "missing_required_tags":dict(missing),"read_or_consistency_errors":errors,
             "ready_for_dicomweb_adapter_design":not (errors or missing or len(instances)!=len(rows))}
