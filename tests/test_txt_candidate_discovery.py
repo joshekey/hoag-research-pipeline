@@ -46,7 +46,7 @@ class TXTDiscoveryTests(unittest.TestCase):
             state=Path(tmp)
             database=state/"workflow.sqlite"
             report=state/"synthetic-historical.txt"
-            report.write_text("Accession: A10045\\nPatient Name: Jane Smith\\nExam Date: 10/01/2026")
+            report.write_text("Accession: A10045\nPatient Name: Jane Smith\nExam Date: 10/01/2026")
             import hashlib
             sha=hashlib.sha256(report.read_bytes()).hexdigest()
             with sqlite3.connect(database) as db:
