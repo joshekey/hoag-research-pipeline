@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pydicom
-from flask import Flask, Response, abort, jsonify, render_template, request, session
+from flask import Flask, Response, abort, jsonify, render_template, request, session, send_from_directory
 from PIL import Image
 from werkzeug.security import check_password_hash
 
@@ -18,6 +18,7 @@ import sql_gui_candidates
 import sql_association
 import sql_prepare_review
 from report_format import format_report
+from ohif_poc.clinical_dicomweb import create_blueprint as ohif_blueprint, enabled_study
 from store import audit, database, enqueue, initialize, token
 
 
@@ -27,6 +28,8 @@ def create_app(config):
     app.secret_key = config['secret_key']
     app.config.update(MAX_CONTENT_LENGTH=12 * 1024 * 1024, SESSION_COOKIE_HTTPONLY=True,
                       SESSION_COOKIE_SAMESITE='Strict', SESSION_COOKIE_SECURE=config.get('secure_cookies', True))
+
+    app.register_blueprint(ohif_blueprint(config))
 
     @app.before_request
     def protect():
@@ -40,8 +43,15 @@ def create_app(config):
     def headers(response):
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-Frame-Options'] = 'DENY'
-        response.headers['Content-Security-Policy'] = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' blob:; frame-ancestors 'none'"
+        if request.path == '/viewer' or request.path == '/app-config.js' or request.path.endswith(('.js', '.css', '.wasm', '.svg', '.woff2')):
+            response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+            response.headers['Content-Security-Policy'] = ("default-src 'self' blob: data:; script-src 'self' 'wasm-unsafe-eval'; "
+                "worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; "
+                "font-src 'self' data:; connect-src 'self'; frame-ancestors 'self'")
+        else:
+            response.headers['X-Frame-Options'] = 'DENY'
+            response.headers['Content-Security-Policy'] = ("default-src 'self'; style-src 'self'; script-src 'self'; "
+                "img-src 'self' blob:; frame-src 'self'; frame-ancestors 'none'")
         return response
 
     @app.errorhandler(ValueError)
@@ -56,6 +66,26 @@ def create_app(config):
     def index():
         session.setdefault('csrf', secrets.token_urlsafe(32))
         return render_template('index.html', csrf=session['csrf'])
+
+    OHIF_ASSETS = Path('/opt/hoag-research/ohif-assets')
+
+    @app.get('/viewer')
+    def ohif_viewer():
+        allowed = enabled_study()
+        if request.args.get('StudyInstanceUIDs', '') != allowed:
+            abort(404)
+        if not (OHIF_ASSETS / 'index.html').is_file():
+            abort(404)
+        return send_from_directory(OHIF_ASSETS, 'index.html')
+
+    @app.get('/<path:ohif_asset>')
+    def ohif_static(ohif_asset):
+        if not ohif_asset.endswith(('.js', '.css', '.wasm', '.woff', '.woff2',
+                                     '.svg', '.png', '.ico', '.json', '.map')):
+            abort(404)
+        if not OHIF_ASSETS.is_dir():
+            abort(404)
+        return send_from_directory(OHIF_ASSETS, ohif_asset)
 
     @app.get('/api/status')
     def status():
