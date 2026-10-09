@@ -15,7 +15,9 @@ from pathlib import Path
 
 import pydicom
 from flask import Blueprint, Response, abort, request
-from pydicom.uid import ExplicitVRLittleEndian, ImplicitVRLittleEndian
+from pydicom.uid import (ExplicitVRLittleEndian, ImplicitVRLittleEndian,
+                         JPEGLosslessSV1, JPEG2000Lossless)
+from pydicom.encaps import generate_frames
 
 from ohif_poc.clinical_retrieval_core import instance_bytes
 from ohif_poc.scoped_catalog import scoped_catalog
@@ -24,6 +26,12 @@ ROOT = "/ohif/dicomweb"
 UID_RE = re.compile(r"^[0-9]+(?:\.[0-9]+)*$")
 MAX_PIXEL_BYTES = 128 * 1024 * 1024
 MAX_INSTANCE_BYTES = 128 * 1024 * 1024
+SUPPORTED_SYNTAXES = {
+    str(ExplicitVRLittleEndian): "application/octet-stream",
+    str(ImplicitVRLittleEndian): "application/octet-stream",
+    str(JPEGLosslessSV1): "image/jpeg",
+    str(JPEG2000Lossless): "image/jp2",
+}
 
 # This config is NOT in the git repository or sourced from browser input.
 ALLOWLIST = Path("/etc/hoag-research/ohif-pilot-study.uid")
@@ -95,6 +103,10 @@ def metadata_for(config, uid, series, sop):
     path = scoped_instance(config, uid, uid, series, sop)
     ds = pydicom.dcmread(path, stop_before_pixels=True)
     meta = ds.to_json_dict()
+    syntax = str(ds.file_meta.TransferSyntaxUID)
+    if syntax not in SUPPORTED_SYNTAXES:
+        abort(415)
+    meta["00020010"] = {"vr": "UI", "Value": [syntax]}
     meta["7FE00010"] = {
         "vr": "OW",
         "BulkDataURI": (
@@ -181,12 +193,27 @@ def create_blueprint(config):
         ds = pydicom.dcmread(io.BytesIO(raw))
         if int(ds.get("NumberOfFrames", 1) or 1) != 1:
             abort(415)
-        syntax = ds.file_meta.TransferSyntaxUID
-        if syntax not in (ExplicitVRLittleEndian, ImplicitVRLittleEndian):
-            abort(415)  # Do not send compressed frames with incorrect media type
-        pixels = bytes(ds.PixelData)
-        if len(pixels) > MAX_PIXEL_BYTES:
-            abort(413)
-        return multipart(pixels, "application/octet-stream", "frame")
+        syntax = str(ds.file_meta.TransferSyntaxUID)
+        media = SUPPORTED_SYNTAXES.get(syntax)
+        if media is None:
+            abort(415)
+        if media == "application/octet-stream":
+            pixels = bytes(ds.PixelData)
+        else:
+            # Return the single original encapsulated frame. No decompression,
+            # transcoding, or changes to original DICOM image samples.
+            try:
+                frames = generate_frames(ds.PixelData, number_of_frames=1)
+                pixels = next(frames)
+                try:
+                    next(frames)
+                    abort(415)
+                except StopIteration:
+                    pass
+            except (ValueError, TypeError, KeyError, StopIteration):
+                abort(415)
+        if not pixels or len(pixels) > MAX_PIXEL_BYTES:
+            abort(413 if len(pixels) > MAX_PIXEL_BYTES else 415)
+        return multipart(pixels, media, "frame")
 
     return bp
