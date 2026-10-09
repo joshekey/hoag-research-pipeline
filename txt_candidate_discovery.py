@@ -108,13 +108,14 @@ def discover(config, limit_per_study=10):
             raise ValueError("A completed catalog scan is required")
         if db.execute("SELECT 1 FROM jobs WHERE state IN ('queued','running') LIMIT 1").fetchone():
             raise ValueError("Indexing or processing in progress")
+        has_sql = bool(db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sql_associations'").fetchone())
+        exclusion = ("""AND NOT EXISTS (SELECT 1 FROM sql_associations a
+                 WHERE a.uid=s.uid AND a.study_fingerprint=s.fingerprint)""" if has_sql else "")
         studies=[dict(r) for r in db.execute("""SELECT s.uid,s.accession,s.patient,s.name,s.date,s.modality,
                s.state,s.report_id,s.fingerprint FROM studies s
                WHERE s.state NOT IN ('conflict','approved','exported','review')
                AND s.report_id IS NULL
-               AND NOT EXISTS (SELECT 1 FROM sql_associations a
-                 WHERE a.uid=s.uid AND a.study_fingerprint=s.fingerprint)
-               ORDER BY s.uid""")]
+               """ + exclusion + """ ORDER BY s.uid""")]
         reports=[dict(r) for r in db.execute("""SELECT * FROM files
              WHERE kind='report' AND active=1 AND status='ok' ORDER BY id""")]
     result={s["uid"]:[] for s in studies}
