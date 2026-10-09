@@ -3,6 +3,7 @@ const $ = id => document.getElementById(id);
 const csrf = document.querySelector('meta[name="csrf"]').content;
 let uid = null, offset = 0, total = 0, imageURL = null, latest = null, zoom = 1;
 let refreshing = false, listing = 0, imageRequest = 0, reviewRequest = 0, foldersInitialized = false;
+let dicomSeries = new Map(), dicomFrames = new Map(), inspectedFrames = new Set();
 const states = ['unmatched','candidate','ambiguous','conflict','review','approved','exported','needs_review'];
 const labels = {unmatched:'No report match',candidate:'One candidate',ambiguous:'Multiple candidates',conflict:'Identity conflict',review:'Ready for review',approved:'Approved',exported:'Exported',needs_review:'Needs rescan / review'};
 function el(tag, text, cls) { const n = document.createElement(tag); if(text !== undefined)n.textContent = text; if(cls)n.className = cls; return n; }
@@ -71,7 +72,7 @@ async function openStudy(value) {
  if(d.study.last_error)notice(d.study.last_error,true);
  $('original').value=d.original_report;$('sanitized').value=d.study.sanitized||'';$('masks').value=d.study.redactions||'[]';$('review-note').value=d.study.review_note||'';$('images-reviewed').checked=false;$('report-reviewed').checked=false;
  $('report-choice').replaceChildren();d.candidates.forEach(addReport);if(d.study.report_id)$('report-choice').value=d.study.report_id;
- $('image-choice').replaceChildren();d.images.forEach((image,i)=>{const o=el('option','Instance '+(i+1)+' | '+JSON.parse(image.metadata).Modality);o.value=image.id;$('image-choice').append(o);});$('frame').value=0;
+ setupDicomSeries(d.images);
  highlight();$('review').scrollIntoView({behavior:'smooth'});if(!d.original_report&&d.candidates.length)await candidateText();if(d.images.length)await viewImage();
  }catch(e){notice(e.message,true);}
 }
@@ -143,9 +144,71 @@ async function candidateText() {const selected=$('report-choice').value;const st
 function highlight() {
  const text=$('sanitized').value;const parts=text.split('[REDACTED]');$('redaction-preview').replaceChildren();parts.forEach((part,i)=>{if(i)$('redaction-preview').append(el('mark','[REDACTED]'));$('redaction-preview').append(document.createTextNode(part));});$('redaction-summary').textContent=(parts.length-1)+' proposed redactions. Review the original and sanitized report; edits do not approve it.';
 }
+function setupDicomSeries(images){
+ dicomSeries=new Map();dicomFrames=new Map();inspectedFrames=new Set();++imageRequest;
+ $('images-reviewed').checked=false;
+ images.forEach((item,i)=>{
+  const meta=JSON.parse(item.metadata||'{}'),key=String(meta.SeriesInstanceUID||'unclassified');
+  if(!dicomSeries.has(key))dicomSeries.set(key,{description:String(meta.SeriesDescription||meta.Modality||'Series'),images:[]});
+  dicomSeries.get(key).images.push({id:item.id,label:'Instance '+(i+1)});
+ });
+ const selector=$('dicom-series');selector.replaceChildren();
+ let n=0;for(const [key,series] of dicomSeries){
+  const option=el('option',(++n)+'. '+series.description+' ('+series.images.length+' instances)');
+  option.value=key;selector.append(option);
+ }
+ showSeries();
+}
+function currentSeries(){return dicomSeries.get($('dicom-series').value);}
+function showSeries(){
+ const series=currentSeries();$('image-choice').replaceChildren();
+ for(const item of series?.images||[]){const o=el('option',item.label);o.value=item.id;$('image-choice').append(o);}
+ $('frame').value=0;updateStack();
+}
+function updateStack(){
+ const items=currentSeries()?.images||[],index=Math.max(0,items.findIndex(i=>String(i.id)===$('image-choice').value));
+ const count=dicomFrames.get(String(items[index]?.id))||1;
+ const frame=Math.max(0,Math.min(count-1,Number($('frame').value)||0));
+ $('frame').value=frame;$('frame').max=count-1;
+ const bar=$('dicom-position');bar.min=1;bar.max=Math.max(items.length,1);bar.value=items.length?index+1:1;bar.disabled=!items.length;
+ $('dicom-position-label').textContent=items.length?'Instance '+(index+1)+' / '+items.length+' · Frame '+(frame+1)+' / '+count:'No images';
+ $('dicom-prev').disabled=!items.length||(index===0&&frame===0);
+ $('dicom-next').disabled=!items.length||(index===items.length-1&&frame===count-1);
+ const shown=new Set([...inspectedFrames].map(x=>x.split(':')[0])).size;
+ const total=[...dicomSeries.values()].reduce((n,v)=>n+v.images.length,0);
+ $('dicom-review-progress').textContent='Displayed '+shown+' / '+total+' instances; '+inspectedFrames.size+' frames displayed. Total frame counts are unknown until images are opened. Displayed is not clinically reviewed.';
+}
+function navigateStack(delta){
+ const items=currentSeries()?.images||[];if(!items.length)return;
+ let i=Math.max(0,items.findIndex(x=>String(x.id)===$('image-choice').value));
+ let frame=(Number($('frame').value)||0)+delta;
+ if(frame>= (dicomFrames.get(String(items[i].id))||1)){if(i===items.length-1)return;i++;frame=0;}
+ else if(frame<0){if(i===0)return;i--;frame=(dicomFrames.get(String(items[i].id))||1)-1;}
+ $('image-choice').value=String(items[i].id);$('frame').value=frame;updateStack();void viewImage();
+}
 async function viewImage() {
- const generation=++imageRequest;try{const res=await fetch('/api/image/'+$('image-choice').value+'?frame='+$('frame').value);if(!res.ok){const d=await res.json();throw Error(d.error||'Preview unavailable');}const blob=await res.blob();if(generation!==imageRequest)return;if(imageURL)URL.revokeObjectURL(imageURL);imageURL=URL.createObjectURL(blob);$('image').src=imageURL;$('image-info').textContent=res.headers.get('X-Columns')+' x '+res.headers.get('X-Rows')+' pixels | '+res.headers.get('X-Frames')+' frames';$('frame').max=Number(res.headers.get('X-Frames'))-1;
- }catch(e){$('image').removeAttribute('src');$('mask-canvas').width=0;notice(e.message,true);}
+ const generation=++imageRequest,study=uid,id=$('image-choice').value,frame=Number($('frame').value)||0;
+ if(!id)return;
+ try{
+  const res=await fetch('/api/image/'+encodeURIComponent(id)+'?frame='+frame,{cache:'no-store'});
+  if(!res.ok){const err=await res.json();throw Error(err.error||'Preview unavailable');}
+  const blob=await res.blob();
+  if(generation!==imageRequest||study!==uid)return;
+  const frames=Number(res.headers.get('X-Frames'))||1;
+  dicomFrames.set(String(id),frames);
+  if(imageURL)URL.revokeObjectURL(imageURL);
+  imageURL=URL.createObjectURL(blob);
+  $('image').onload=()=>{
+   if(generation!==imageRequest||study!==uid)return;
+   inspectedFrames.add(String(id)+':'+frame);drawMasks();applyZoom();updateStack();
+  };
+  $('image').src=imageURL;
+  $('image-info').textContent=res.headers.get('X-Columns')+' x '+res.headers.get('X-Rows')+' pixels | '+frames+' frames';
+  updateStack();
+ }catch(e){
+  if(generation!==imageRequest||study!==uid)return;
+  $('image').removeAttribute('src');$('mask-canvas').width=0;notice(e.message,true);
+ }
 }
 function masks() {const value=JSON.parse($('masks').value);if(!Array.isArray(value)||value.some(r=>!Array.isArray(r)||r.length!==4||r.some(v=>!Number.isInteger(v)||v<0)||r[2]===0||r[3]===0))throw Error('Masks must be [[x,y,width,height]] with positive sizes');return value;}
 function drawMasks() {const canvas=$('mask-canvas'),image=$('image');if(!image.naturalWidth)return;canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);try{for(const [x,y,w,h] of masks()){ctx.fillStyle='rgba(255,90,90,.4)';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#ff7777';ctx.lineWidth=Math.max(1,canvas.width/350);ctx.strokeRect(x,y,w,h);}}catch(e){notice(e.message,true);} }
@@ -155,7 +218,7 @@ function point(event) {const c=$('mask-canvas'),r=c.getBoundingClientRect();retu
 $('mask-canvas').onpointerdown=event=>{if(!$('draw-mask').checked)return;event.preventDefault();dragStart=point(event);$('mask-canvas').setPointerCapture(event.pointerId);};
 $('mask-canvas').onpointerup=event=>{if(!dragStart)return;const end=point(event),start=dragStart;dragStart=null;const rectangle=[Math.min(start[0],end[0]),Math.min(start[1],end[1]),Math.abs(end[0]-start[0]),Math.abs(end[1]-start[1])];if(rectangle[2]&&rectangle[3]){try{const all=masks();all.push(rectangle);$('masks').value=JSON.stringify(all);$('images-reviewed').checked=false;drawMasks();}catch(e){notice(e.message,true);}}};
 $('mask-canvas').onpointercancel=()=>{dragStart=null;};
-$('image').onload=()=>{drawMasks();applyZoom();};$('zoom-in').onclick=()=>{zoom=Math.min(4,zoom+.25);applyZoom();};$('zoom-out').onclick=()=>{zoom=Math.max(.25,zoom-.25);applyZoom();};$('zoom-fit').onclick=()=>{zoom=1;applyZoom();};$('undo-mask').onclick=safely(()=>{const all=masks();all.pop();$('masks').value=JSON.stringify(all);$('images-reviewed').checked=false;drawMasks();});$('masks').onchange=()=>{$('images-reviewed').checked=false;drawMasks();};
+$('zoom-in').onclick=()=>{zoom=Math.min(4,zoom+.25);applyZoom();};$('zoom-out').onclick=()=>{zoom=Math.max(.25,zoom-.25);applyZoom();};$('zoom-fit').onclick=()=>{zoom=1;applyZoom();};$('undo-mask').onclick=safely(()=>{const all=masks();all.pop();$('masks').value=JSON.stringify(all);$('images-reviewed').checked=false;drawMasks();});$('masks').onchange=()=>{$('images-reviewed').checked=false;drawMasks();};
 async function health() {try{const data=await api('/api/health');$('health').replaceChildren();for(const share of data.shares){const c=el('div',undefined,'card');c.append(el('h3',share.slot),el('p',share.path),el('p',share.message,share.ok?'good':'warning'));if(share.ok)c.append(el('p',bytes(share.free)+' free / '+bytes(share.total)));$('health').append(c);if(share.output)$('export-space').textContent=share.ok?'Output capacity: '+bytes(share.free)+' free of '+bytes(share.total):'Output unavailable: '+share.message;}}catch(e){notice(e.message,true);} }
 function renderExports() {$('exports').replaceChildren();if(!latest.exports.length){$('exports').textContent='No completed packages yet.';return;}const table=el('table');const header=el('tr');['Package destination','Created','Size','Validation',''].forEach(x=>header.append(el('th',x)));table.append(header);for(const record of latest.exports){const tr=el('tr');cell(tr,record.folder,'package-path');cell(tr,date(record.created));cell(tr,bytes(record.bytes));const c=cell(tr,record.validation);if(record.validated)c.append(el('span',date(record.validated),'sub'));const b=button('Verify checksums',()=>queue('validate_export',{export_id:record.id}));b.disabled=active();cell(tr,'').append(b);table.append(tr);}$('exports').append(table,el('p','Showing the latest 100 completed packages.','muted'));}
 function renderSQL(files) {
@@ -179,7 +242,26 @@ $('sql-draft-prepare').onclick=safely(async()=>{
     ? 'Draft prepared for manual de-identification review. NOT approved or exportable.'
     : 'SQL draft unavailable.';
 });
-$('prepare').onclick=()=>queue('prepare',{uid,report_id:Number($('report-choice').value)});$('view').onclick=viewImage;$('image-choice').onchange=()=>{$('frame').value=0;viewImage();};$('report-choice').onchange=safely(async()=>{$('report-reviewed').checked=false;$('sanitized').value='';highlight();await candidateText();});
+$('prepare').onclick=()=>queue('prepare',{uid,report_id:Number($('report-choice').value)});
+$('view').onclick=viewImage;
+$('dicom-series').onchange=()=>{showSeries();void viewImage();};
+$('image-choice').onchange=()=>{$('frame').value=0;updateStack();void viewImage();};
+$('frame').onchange=()=>{updateStack();void viewImage();};
+$('dicom-prev').onclick=()=>navigateStack(-1);
+$('dicom-next').onclick=()=>navigateStack(1);
+$('dicom-position').oninput=()=>{
+ const item=currentSeries()?.images[Number($('dicom-position').value)-1];
+ if(item){$('image-choice').value=String(item.id);$('frame').value=0;updateStack();void viewImage();}
+};
+$('image-viewport').tabIndex=0;
+$('image-viewport').addEventListener('wheel',event=>{
+ if(event.ctrlKey||$('draw-mask').checked||!currentSeries()||event.deltaY===0)return;
+ event.preventDefault();navigateStack(event.deltaY>0?1:-1);
+},{passive:false});
+$('image-viewport').addEventListener('keydown',event=>{
+ if(['ArrowRight','ArrowDown'].includes(event.key)){event.preventDefault();navigateStack(1);}
+ if(['ArrowLeft','ArrowUp'].includes(event.key)){event.preventDefault();navigateStack(-1);}
+});$('report-choice').onchange=safely(async()=>{$('report-reviewed').checked=false;$('sanitized').value='';highlight();await candidateText();});
 $('find-report').onclick=safely(async()=>{const reports=await api('/api/reports?q='+encodeURIComponent($('report-search').value));$('report-choice').replaceChildren();reports.forEach(addReport);$('report-reviewed').checked=false;$('sanitized').value='';highlight();await candidateText();});
 $('sanitized').oninput=()=>{$('report-reviewed').checked=false;highlight();};
 $('approve').onclick=safely(async()=>{await api('/api/study/'+encodeURIComponent(uid)+'/approve',{text:$('sanitized').value,rectangles:masks(),note:$('review-note').value,images_reviewed:$('images-reviewed').checked,report_reviewed:$('report-reviewed').checked});notice('Study approved for export.');await openStudy(uid);await refresh();});
