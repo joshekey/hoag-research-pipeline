@@ -28,8 +28,14 @@ class BrokerTests(unittest.TestCase):
         self.patch_secret.start()
         self.addCleanup(self.patch_index.stop)
         self.addCleanup(self.patch_secret.stop)
-        self.request = {"action":"list", "uid":"1.2.3", "name":"PERSON^SAMPLE",
-                        "dob":"19800203", "date":"20210902", "modality":"MR"}
+        self.request = {"action":"list", "uid":"1.2.3"}
+        self.auth_patch = patch.object(sql_broker, "authorized_study", return_value={
+            "name":"PERSON SAMPLE", "dob":"19800203", "date":"20210902", "modality":"MR"})
+        self.config_patch = patch.object(sql_broker, "load_config", return_value={"state_dir":"/synthetic"})
+        self.auth_patch.start()
+        self.addCleanup(self.auth_patch.stop)
+        self.config_patch.start()
+        self.addCleanup(self.config_patch.stop)
 
     def test_only_same_name_dob_returned(self):
         result = sql_broker.query(self.request)
@@ -45,7 +51,7 @@ class BrokerTests(unittest.TestCase):
         self.assertIn("FINDINGS:", good["text"])
         with self.assertRaises(LookupError):
             sql_broker.query(dict(self.request, uid="1.2.99", action="preview", token=token))
-        with self.assertRaises(LookupError):
+        with self.assertRaises(ValueError):
             sql_broker.query(dict(self.request, name="OTHER^PERSON", action="preview", token=token))
 
     def test_refuses_unrestricted_file_permissions(self):
