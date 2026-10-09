@@ -6,15 +6,16 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-Group=root
+Group=hoag-indexer
 UMask=0077
 WorkingDirectory=/opt/hoag-research
 ExecStart=/opt/hoag-research/venv/bin/python /opt/hoag-research/sql_broker.py
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
-# Only DAC_READ_SEARCH is retained to traverse the 0700 hoag-indexer state
-# directory and read its root-owned 0600 SQL index; no administrative caps.
+# Retain only DAC_READ_SEARCH to read the protected index.
+# RuntimeDirectory is managed by systemd as root:hoag-indexer;
+# never add CAP_CHOWN or chown paths from Python.
 CapabilityBoundingSet=CAP_DAC_READ_SEARCH
 AmbientCapabilities=
 PrivateNetwork=yes
