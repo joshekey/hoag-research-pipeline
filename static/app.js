@@ -75,11 +75,23 @@ async function openStudy(value) {
  highlight();$('review').scrollIntoView({behavior:'smooth'});if(!d.original_report&&d.candidates.length)await candidateText();if(d.images.length)await viewImage();
  }catch(e){notice(e.message,true);}
 }
+async function loadSQLDraft(){
+ if(!uid)return;
+ const study=uid;
+ const result=await api('/api/study/'+encodeURIComponent(study)+'/sql-draft');
+ if(study!==uid)return;
+ $('sql-draft-text').value=result.prepared?(result.draft||''):'';
+ $('sql-draft-status').textContent=result.prepared
+  ? 'Sanitized SQL draft available. Manual review required; NOT approved/exportable.'
+  : 'No prepared SQL draft for this study.';
+}
 async function loadSQLCandidates() {
  const study=uid;
  if(!study)return;
  const data=await api('/api/study/'+encodeURIComponent(study)+'/sql-candidates');
  if(study!==uid)return;
+ $('sql-draft-text').value='';
+ $('sql-draft-status').textContent='';
  $('sql-candidate-original').value='';
  $('sql-candidate-readable').value='';
  $('sql-candidate-format-status').textContent='';
@@ -155,6 +167,17 @@ for(const id of ['search','filter-state','filter-modality','filter-from','filter
 $('filter-clear').onclick=safely(()=>{for(const id of ['search','filter-state','filter-modality','filter-from','filter-to'])$(id).value='';offset=0;return list();});
 $('previous').onclick=safely(()=>{offset=Math.max(0,offset-100);return list();});$('next').onclick=safely(()=>{offset+=100;return list();});$('page-number').onchange=safely(()=>{const page=Number($('page-number').value);offset=(Math.max(1,Math.min(Math.ceil(total/100)||1,Math.floor(page)||1))-1)*100;return list();});
 $('sql-candidate-refresh').onclick=safely(loadSQLCandidates);
+$('sql-draft-prepare').onclick=safely(async()=>{
+  if(!uid)throw Error('Open a study first');
+  if(!window.confirm('Prepare a sanitized SQL draft for review only? This does NOT approve the study or authorize export.'))return;
+  const selected=uid;
+  const result=await api('/api/study/'+encodeURIComponent(selected)+'/sql-draft',{confirm:true});
+  if(selected!==uid)return;
+  $('sql-draft-text').value=result.draft||'';
+  $('sql-draft-status').textContent=result.prepared
+    ? 'Draft prepared for manual de-identification review. NOT approved or exportable.'
+    : 'SQL draft unavailable.';
+});
 $('prepare').onclick=()=>queue('prepare',{uid,report_id:Number($('report-choice').value)});$('view').onclick=viewImage;$('image-choice').onchange=()=>{$('frame').value=0;viewImage();};$('report-choice').onchange=safely(async()=>{$('report-reviewed').checked=false;$('sanitized').value='';highlight();await candidateText();});
 $('find-report').onclick=safely(async()=>{const reports=await api('/api/reports?q='+encodeURIComponent($('report-search').value));$('report-choice').replaceChildren();reports.forEach(addReport);$('report-reviewed').checked=false;$('sanitized').value='';highlight();await candidateText();});
 $('sanitized').oninput=()=>{$('report-reviewed').checked=false;highlight();};
