@@ -93,6 +93,38 @@ class ClinicalOHIFPilotTests(unittest.TestCase):
         self.assertEqual(response.status_code,200)
         self.assertIn("multipart/related",response.content_type)
 
+    def test_all_indexed_mode_lists_multiple_eligible_studies(self):
+        import sqlite3
+        other="1.2.826.0.1.3680043.10.543.777"
+        with sqlite3.connect(self.state/"workflow.sqlite") as db:
+            db.execute("""INSERT INTO studies(uid,subject,fingerprint,redactions,source_hashes,state,count)
+                          VALUES (?,?,?,?,?,?,?)""",
+                       (other,"SYNTHETIC-OTHER","fp2",'[]','{}',"unmatched",1))
+            db.execute("""INSERT INTO files(path,root,kind,size,mtime,metadata,status,active)
+                          VALUES (?,?,?,?,?,?,?,1)""",
+                       ("/synthetic/other.dcm","/synthetic","dicom",1,1,
+                        json.dumps({"StudyInstanceUID":other,
+                                    "SeriesInstanceUID":other+".1",
+                                    "SOPInstanceUID":other+".1.1"}),"ok"))
+        self.allowed.write_text("ALL_INDEXED")
+        with patch("ohif_poc.clinical_dicomweb.scoped_catalog",
+                   side_effect=lambda _cfg,study,_allowed:
+                       {(SERIES,SOPS[0]):{}} if study==STUDY
+                       else {(other+".1",other+".1.1"): {}}):
+            reply=self.client.get("/ohif/dicomweb/studies",headers=self.auth)
+        self.assertEqual(reply.status_code,200)
+        self.assertEqual(len(reply.json),2)
+        self.assertEqual(
+            {x["0020000D"]["Value"][0] for x in reply.json},{STUDY,other})
+
+    def test_all_indexed_mode_excludes_incomplete_study(self):
+        import sqlite3
+        self.allowed.write_text("ALL_INDEXED")
+        with sqlite3.connect(self.state/"workflow.sqlite") as db:
+            db.execute("UPDATE studies SET count=999 WHERE uid=?",(STUDY,))
+        result=self.client.get("/ohif/dicomweb/studies",headers=self.auth)
+        self.assertEqual(result.status_code,404)
+
     def test_no_upload_endpoint(self):
         self.assertEqual(self.client.post("/ohif/dicomweb/studies",
             headers=self.auth,data=b"no").status_code,403)
