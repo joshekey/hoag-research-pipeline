@@ -97,6 +97,7 @@ async function loadSQLCandidates() {
  $('sql-candidate-format-status').textContent='';
  $('sql-candidate-list').replaceChildren();
  $('sql-candidate-summary').textContent=data.total+' name-matched candidates (showing '+data.candidates.length+'). Score is a heuristic, not a probability or approval.';
+ await loadSQLDraft();
  const labels={name:'Patient name',dob:'DOB',exam_date:'Examination date',exam_type:'Modality and anatomy'};
  data.candidates.forEach((item,i)=>{
    const line=el('div',undefined,'card');
