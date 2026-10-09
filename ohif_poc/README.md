@@ -43,6 +43,8 @@ place. Do not expose raw indexed DICOM through a general-purpose web server.
    de-identification clearance. Legacy export should remain blocked until
    approved in the existing workflow.
 
+The synthetic fixture is intentionally **not runnable as a web server**. Unit tests use Flask `test_client()` only. The sample OHIF app configuration is illustrative and does not include a version-pinned viewer bundle or registration of built-in mode/extension modules; do not expect the configuration file alone to launch a viewer.
+
 ## Security / data handling decisions
 
 - Never mount the source share read/write or copy clinical data into this repository.
