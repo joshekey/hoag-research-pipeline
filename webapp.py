@@ -16,6 +16,7 @@ from werkzeug.security import check_password_hash
 import engine
 import sql_gui_candidates
 import sql_association
+import sql_prepare_review
 from report_format import format_report
 from store import audit, database, enqueue, initialize, token
 
@@ -193,6 +194,17 @@ def create_app(config):
         return jsonify(sql_association.confirm(config, uid, body.get('token', ''),
                          body.get('note', ''), body.get('date_verified'),
                          body.get('conflicts_acknowledged'), config['username']))
+
+    @app.post('/api/study/<uid>/sql-draft')
+    def prepare_sql_draft(uid):
+        body = request.get_json(silent=True) or {}
+        if body.get('confirm') is not True:
+            raise ValueError('Explicit SQL draft preparation confirmation required')
+        return jsonify(sql_prepare_review.prepare_draft(config, uid, config['username']))
+
+    @app.get('/api/study/<uid>/sql-draft')
+    def read_sql_draft(uid):
+        return jsonify(sql_prepare_review.read_draft(config, uid))
 
     @app.get('/api/study/<uid>')
     def study_detail(uid):
