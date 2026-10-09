@@ -11,6 +11,7 @@ import pydicom
 
 import engine
 from strict_identity_match import normalize_date, normalize_name
+from sql_dicom_pilot import regions
 
 
 def authorized_study(uid, config):
@@ -43,13 +44,16 @@ def authorized_study(uid, config):
     # source_path enforces configured read-only mounts, containment, and mtime/size.
     path = engine.source_path(config, first)
     ds = pydicom.dcmread(path, stop_before_pixels=True,
-                        specific_tags=["PatientName", "PatientBirthDate", "StudyInstanceUID", "StudyDate"])
+                        specific_tags=["PatientName", "PatientBirthDate", "StudyInstanceUID", "StudyDate",
+                                       "StudyDescription", "SeriesDescription", "BodyPartExamined"])
     if str(ds.get("StudyInstanceUID", "")) != uid or normalize_name(ds.get("PatientName", "")) != normalize_name(name):
         raise ValueError("DICOM header/catalog mismatch")
     study_date = normalize_date(study["date"])
     if not study_date or normalize_date(ds.get("StudyDate", "")) != study_date:
         raise ValueError("DICOM study date missing or inconsistent")
-    return {"name": normalize_name(name),
+    exam_text = " ".join(str(ds.get(tag, "")) for tag in
+                         ("StudyDescription", "SeriesDescription", "BodyPartExamined"))
+    return {"regions": sorted(regions(exam_text)), "name": normalize_name(name),
             "dob": normalize_date(ds.get("PatientBirthDate", "")),
             "date": study_date,
             "modality": str(study["modality"] or "")}
