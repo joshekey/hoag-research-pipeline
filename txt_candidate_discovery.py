@@ -96,8 +96,8 @@ def evaluate(study, report, *, study_dob="", study_anatomy=()):
             "evidence":evidence,"conflicts":conflicts,
             "requires_manual_confirmation":True}
 
-def discover(config, limit_per_study=10):
-    """Return in-memory candidate summaries; no database writes."""
+def discover(config, limit_per_study=10, include_verified_inactive=False):
+    """Return in-memory candidates without writes; historical sources need revalidation."""
     if not 1 <= limit_per_study <= 100:
         raise ValueError("Invalid candidate limit")
     catalog=Path(config["state_dir"])/"workflow.sqlite"
@@ -117,11 +117,13 @@ def discover(config, limit_per_study=10):
                AND s.report_id IS NULL
                """ + exclusion + """ ORDER BY s.uid""")]
         reports=[dict(r) for r in db.execute("""SELECT * FROM files
-             WHERE kind='report' AND active=1 AND status='ok' ORDER BY id""")]
+             WHERE kind='report' AND status='ok' AND (active=1 OR (?=1 AND active=0))
+             ORDER BY id""", (int(include_verified_inactive),))]
     result={s["uid"]:[] for s in studies}
     totals=Counter()
     totals["studies_examined"]=len(studies)
     totals["reports_indexed"]=len(reports)
+    totals["historical_reports_considered"]=sum(r["active"] == 0 for r in reports)
     # For each report read once, validate the original hash and source inventory.
     for report in reports:
         try:
@@ -133,6 +135,8 @@ def discover(config, limit_per_study=10):
             totals["reports_unreadable"]+=1
             continue
         totals["reports_scanned"]+=1
+        if report["active"] == 0:
+            totals["historical_reports_verified"]+=1
         clue=clues(text,Path(report["path"]).stem)
         for study in studies:
             assessment=evaluate(study,clue)
@@ -141,6 +145,7 @@ def discover(config, limit_per_study=10):
                     totals["conflicting_pairs"]+=1
                 continue
             result[study["uid"]].append({"report_id":report["id"],
+                    "historical_inactive":bool(not report["active"]),
                     "report_sha256":sha,**assessment})
     for uid, matches in result.items():
         matches.sort(key=lambda r:(-r["score"],r["report_id"]))
@@ -157,13 +162,15 @@ def discover(config, limit_per_study=10):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--config",default="/etc/hoag-research/config.json")
+    parser.add_argument("--include-verified-inactive",action="store_true",
+                        help="Also search hash-verified historical TXT reports without changing catalog status")
     args=parser.parse_args()
     cfg=json.loads(Path(args.config).read_text())
-    outcome=discover(cfg)
+    outcome=discover(cfg, include_verified_inactive=args.include_verified_inactive)
     print("=== READ-ONLY TXT REPORT DISCOVERY ===")
     print(json.dumps(outcome["summary"],indent=2,sort_keys=True))
     print("No patient identifiers, study UIDs, filenames, report text, or candidate mappings printed.")
-    print("No associations, research approvals, or exports changed.")
+    print("Historical candidate files remain inactive. No associations, research approvals, or exports changed.")
 
 if __name__=="__main__":
     main()
