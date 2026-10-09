@@ -17,6 +17,7 @@ from pathlib import Path
 from strict_identity_match import extract_header, normalize_date, normalize_name
 from sql_dicom_pilot import modalities, text
 from broker_study_auth import authorized_study
+from candidate_scoring import score as candidate_score
 
 SOCKET = "/run/hoag-sql/control.sock"
 INDEX = Path("/var/lib/hoag-research/sql-private/reports-v2.sqlite")
@@ -65,7 +66,8 @@ def query(data):
         for rid, narrative, procedure, result_date in db.execute(
                 "SELECT report_id,text,procedure_name,result_date FROM narratives"):
             header = extract_header(narrative)
-            if header["name"] != name or header["dob"] != dob:
+            # Require matching name for discovery; DOB may be missing, never fabricate it.
+            if not name or header["name"] != name:
                 continue
             token = report_token(key, uid, rid)
             if data["action"] == "preview":
@@ -74,24 +76,24 @@ def query(data):
                 if not narrative or len(narrative) > MAX_NARRATIVE:
                     raise ValueError("Narrative size unsupported")
                 return {"text": text(narrative), "read_only": True}
-            mods = modalities(procedure)
-            study_mods = {p.strip().upper() for p in modal.split(",") if p.strip()}
-            mod_status = ("compatible" if study_mods and mods and study_mods & mods
-                          else "conflict" if study_mods and mods else "unknown")
+            ranking = candidate_score(study, {"procedure": procedure, "result_date": result_date}, header)
             matches.append({
                 "token": token,
-                "name_dob": True,
-                "exam_date_verified": bool(header["exam_date"] and header["exam_date"] == date),
-                "result_date_matches": bool(not header["exam_date"]
-                                             and normalize_date(result_date) == date),
-                "modality": mod_status,
-                "anatomy": "requires image/procedure comparison",
+                "name_dob": bool(dob and header["dob"] == dob),
+                "exam_date_verified": bool(ranking["evidence"]["exam_date"] == "match"),
+                "result_date_matches": ranking["result_date_support"],
+                "modality": ranking["evidence"]["exam_type"],
+                "anatomy": "check original report and DICOM series",
+                "score": ranking["score"],
+                "evidence": ranking["evidence"],
+                "conflicts": ranking["conflicts"],
+                "score_is_probability": False,
                 "review_required": True,
             })
     if data["action"] == "preview":
         raise LookupError("Candidate unavailable")
-    matches.sort(key=lambda row: (not row["exam_date_verified"], not row["result_date_matches"],
-                                  row["modality"] != "compatible", row["token"]))
+    matches.sort(key=lambda row: (-row["score"], bool(row["conflicts"]),
+                                  not row["result_date_matches"], row["token"]))
     return {"candidates": matches[:30], "total": len(matches), "read_only": True}
 
 def handle(data):
