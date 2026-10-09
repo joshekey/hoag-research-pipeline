@@ -40,7 +40,6 @@ def create_guarded_synthetic_app(key, trusted_principal):
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Access-Control-Allow-Origin"] = "" if "Access-Control-Allow-Origin" in response.headers else response.headers.get("Access-Control-Allow-Origin", "")
         response.headers.pop("Access-Control-Allow-Origin", None)
         return response
 
