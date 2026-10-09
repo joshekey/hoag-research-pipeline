@@ -11,6 +11,7 @@ from collections import Counter
 from pathlib import Path
 
 import pydicom
+from pydicom.uid import ExplicitVRLittleEndian, ImplicitVRLittleEndian
 import engine
 
 REQUIRED = ("StudyInstanceUID", "SeriesInstanceUID", "SOPInstanceUID",
