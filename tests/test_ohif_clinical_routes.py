@@ -3,6 +3,7 @@
 No actual patient DICOM files, identifiers, network connections, or exports.
 """
 import base64
+import json
 import io
 import tempfile
 import unittest
