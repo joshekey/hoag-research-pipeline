@@ -37,7 +37,7 @@ class SyntheticBrowserSessionTests(unittest.TestCase):
     def test_expired_session_denied(self):
         self.attach()
         with patch("ohif_poc.study_capability.time.time",return_value=1120):
-            self.assertEqual(self.client.get(ROOT+"/studies").status_code,403)
+            self.assertEqual(self.client.get(ROOT+"/studies",base_url="https://localhost").status_code,403)
 
     def test_other_study_denied(self):
         self.attach()
