@@ -163,3 +163,7 @@ prebuilt OHIF assets into the app, and restarts the dashboard only. Keep the
 synthetic localhost:3001 pilot independent. Restore via the rollback script
 with the generated archive path. No SQL or DICOM research export behavior is
 changed; final pixel de-identification review remains necessary.
+
+## Expand from one study to all complete indexed studies
+
+`enable_all_indexed.sh` is a controlled and reversible update for the **already-installed** OHIF pilot. It reuses HOAG Basic authentication, enumerates only fully indexed active studies, enforces the indexed source/series/SOP relationship on every request, and keeps source shares read-only. It requires explicit hospital approval for extending identifiable image access from one pilot to the full catalog. Before changing anything it runs all synthetic tests and a read-only transfer syntax/multiframe check of every eligible study; unsupported studies currently stop the rollout rather than silently misrendering images. It backs up the current webapp, gateway and one-study selector, installs the two updated files, sets the root-controlled selector to `ALL_INDEXED`, and restarts only the dashboard. The viewer should then appear on every eligible study without another login. It does not authorize de-identification or export.
