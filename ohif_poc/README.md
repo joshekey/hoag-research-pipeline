@@ -84,3 +84,14 @@ References:
 - Source data and existing approval/export state remain unchanged.
 - Checksum/fingerprint validation and explicit clinical image review are kept
   independently of OHIF's display state.
+
+## Six-series synthetic browser test
+
+The synthetic DICOMweb fixture now generates **157 strictly synthetic images**
+across six series (30, 28, 27, 26, 24, 22 images). Each image has a distinct
+64×64 grayscale pixel pattern and synthetic identifiers; it never reads HOAG
+source shares. It uses the same hard-coded synthetic StudyInstanceUID as the
+earlier two-image fixture, so restart the already-running loopback-only
+Waitress test server to load the new fixture and hard-refresh the browser.
+These data test wheel navigation and series switching, **not** radiology accuracy.
+The offline, network-disabled OHIF container remains unchanged.
