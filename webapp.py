@@ -87,6 +87,15 @@ def create_app(config):
             abort(404)
         return send_from_directory(OHIF_ASSETS, ohif_asset)
 
+    @app.get('/api/study/<uid>/ohif-status')
+    def ohif_status(uid):
+        try:
+            approved_uid = enabled_study()
+        except Exception:
+            return jsonify(enabled=False)
+        return jsonify(enabled=(uid == approved_uid and
+                      (OHIF_ASSETS / 'index.html').is_file()))
+
     @app.get('/api/status')
     def status():
         with database(config) as db:
