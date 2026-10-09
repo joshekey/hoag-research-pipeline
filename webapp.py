@@ -15,6 +15,7 @@ from werkzeug.security import check_password_hash
 
 import engine
 import sql_gui_candidates
+import sql_association
 from store import audit, database, enqueue, initialize, token
 
 
@@ -180,6 +181,15 @@ def create_app(config):
         except LookupError:
             abort(404)
         return jsonify(text=narrative, read_only=True)
+
+    @app.post('/api/study/<uid>/sql-association')
+    def confirm_sql_association(uid):
+        body = request.get_json(silent=True) or {}
+        if body.get('confirm') is not True:
+            raise ValueError('Explicit reviewer confirmation required')
+        return jsonify(sql_association.confirm(config, uid, body.get('token', ''),
+                         body.get('note', ''), body.get('date_verified'),
+                         body.get('conflicts_acknowledged'), config['username']))
 
     @app.get('/api/study/<uid>')
     def study_detail(uid):
