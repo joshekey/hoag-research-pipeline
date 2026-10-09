@@ -33,6 +33,27 @@ if active or len(rows)!=1:
 print("Single permitted clinical pilot confirmed; identifiers omitted.")
 PY
 
+echo "=== VERIFY PILOT TRANSFER SYNTAX / FRAMES ==="
+sudo env PYTHONPATH="$ROOT" /opt/hoag-research/venv/bin/python - <<'PY'
+import json,sqlite3
+from pathlib import Path
+from ohif_poc.preflight import check
+cfg=json.loads(Path("/etc/hoag-research/config.json").read_text())
+catalog=Path(cfg["state_dir"])/"workflow.sqlite"
+with sqlite3.connect(catalog.as_uri()+"?mode=ro",uri=True) as db:
+    rows=db.execute("""SELECT s.uid FROM studies s JOIN sql_associations a ON a.uid=s.uid
+    WHERE s.count=157 AND s.fingerprint=a.study_fingerprint AND a.date_verified=1
+    AND a.conflicts_acknowledged=1 AND s.state NOT IN ('conflict','needs_review')""").fetchall()
+if len(rows)!=1:
+    raise SystemExit("STOP: No unique verified pilot study.")
+result=check(cfg,rows[0][0])
+if not(result["instances_indexed"]==157 and result["native_uncompressed_objects"]==157
+       and result["multi_frame_objects"]==0 and result["read_or_consistency_errors"]==0
+       and not result["missing_required_tags"]):
+    raise SystemExit("STOP: Pilot requires unsupported frames or transfer syntax; do not enable gateway.")
+print("157/157 native little-endian single-frame objects verified.")
+PY
+
 echo "=== BACKUP ==="
 BACKUP="$STATE/backups/pre-ohif-clinical-$STAMP.tar.gz"
 sudo tar -czf "$BACKUP" -C "$APP" webapp.py static/app.js templates/index.html
