@@ -23,6 +23,15 @@ class OHIFEmbedTests(unittest.TestCase):
         self.assertNotIn("http://",script)
         self.assertNotIn("https://",script)
 
+    def test_ohif_iframe_sized_by_csp_compatible_stylesheet(self):
+        html=(ROOT/"templates/index.html").read_text()
+        css=(ROOT/"static/app.css").read_text()
+        self.assertIn('id="ohif-iframe"',html)
+        self.assertNotIn('id="ohif-iframe" style=',html)
+        self.assertIn('#ohif-iframe{display:block;',css)
+        self.assertIn('width:100%;height:clamp(',css)
+        self.assertIn('min-height:560px',css)
+
     def test_gate_disabled_until_allowlist_exists(self):
         source=(ROOT/"ohif_poc/clinical_dicomweb.py").read_text()
         self.assertIn("ohif-pilot-study.uid",source)
