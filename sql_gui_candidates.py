@@ -74,10 +74,11 @@ def study_request(config, uid):
             "modality": str(study["modality"] or "")}
 
 def candidates(config, uid):
-    result = request_broker({"action": "list", **study_request(config, uid)})
+    study_request(config, uid)
+    result = request_broker({"action": "list", "uid": uid})
     return result["candidates"], result["total"]
 
 def report_text(config, uid, token):
-    result = request_broker({"action": "preview",
-                            **study_request(config, uid), "token": token})
+    study_request(config, uid)
+    result = request_broker({"action": "preview", "uid": uid, "token": token})
     return result["text"]
