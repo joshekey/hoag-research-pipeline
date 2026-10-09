@@ -82,17 +82,35 @@ async function loadSQLCandidates() {
  if(study!==uid)return;
  $('sql-candidate-original').value='';
  $('sql-candidate-list').replaceChildren();
- $('sql-candidate-summary').textContent=data.total+' name/DOB candidate(s); showing up to '+data.candidates.length+'. No clinical association approved.';
+ $('sql-candidate-summary').textContent=data.total+' name-matched candidates (showing '+data.candidates.length+'). Score is a heuristic, not a probability or approval.';
+ const labels={name:'Patient name',dob:'DOB',exam_date:'Examination date',exam_type:'Modality and anatomy'};
  data.candidates.forEach((item,i)=>{
    const line=el('div',undefined,'card');
-   const evidence='Candidate '+(i+1)+' | Exam date verified: '+(item.exam_date_verified?'yes':'no')+
-     ' | Result date matches: '+(item.result_date_matches?'yes':'no')+
-     ' | Modality: '+item.modality+' | Anatomy: '+item.anatomy;
-   line.append(el('p',evidence));
+   line.append(el('h4','Candidate '+(i+1)+' — '+item.score+'/100 evidence points'));
+   for(const key of ['name','dob','exam_date','exam_type']){
+     line.append(el('p',(labels[key]||key)+': '+(item.evidence?.[key]||'unknown')));
+   }
+   if(item.result_date_matches)line.append(el('p','SQL RESULT DATE matches DICOM StudyDate; this is not independently verified exam date.','warning'));
+   if(item.conflicts?.length)line.append(el('p','CONFLICTS: '+item.conflicts.join(', '),'warning'));
    line.append(button('Preview original SQL report',safely(async()=>{
      const selected=uid;
      const response=await api('/api/study/'+encodeURIComponent(selected)+'/sql-candidate/'+item.token);
      if(uid===selected)$('sql-candidate-original').value=response.text;
+   })));
+   const note=el('textarea');note.rows=2;note.placeholder='Explain the verified exam date, relationship and any missing/conflicting evidence (15+ characters).';
+   const dateCheck=el('input');dateCheck.type='checkbox';
+   const conflictCheck=el('input');conflictCheck.type='checkbox';
+   const labelDate=el('label');labelDate.append(dateCheck,document.createTextNode(' I independently verified the actual examination date and study/report association.'));
+   const labelConflict=el('label');labelConflict.append(conflictCheck,document.createTextNode(' I reviewed all missing or conflicting evidence; differences are documented.'));
+   line.append(note,labelDate,labelConflict);
+   line.append(button('Record manual association (NOT export approval)',safely(async()=>{
+     if(!dateCheck.checked||!conflictCheck.checked)throw Error('Complete both confirmations.');
+     const result=await api('/api/study/'+encodeURIComponent(study)+'/sql-association',
+       {token:item.token,note:note.value,date_verified:dateCheck.checked,
+        conflicts_acknowledged:conflictCheck.checked,confirm:true});
+     if(uid===study)notice(result.recorded?
+       'SQL association recorded for audit. Report is NOT prepared, approved or exportable.':
+       'Association not recorded.');
    })));
    $('sql-candidate-list').append(line);
  });
