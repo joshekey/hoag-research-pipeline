@@ -64,6 +64,14 @@ async function list() {
  $('catalog-summary').textContent=total.toLocaleString()+' matching studies'+(total?' | Showing '+(offset+1)+'-'+Math.min(offset+100,total):'');$('page-number').value=Math.floor(offset/100)+1;$('page-count').textContent='of '+Math.max(1,Math.ceil(total/100));$('page-number').max=Math.max(1,Math.ceil(total/100));$('previous').disabled=offset===0;$('next').disabled=offset+100>=total;
 }
 async function queue(kind,payload={}) {try{const r=await api('/api/jobs',{kind,payload});notice('Job #'+r.id+' queued.');await refresh();}catch(e){notice(e.message,true);} }
+async function openOHIFStatus(study){
+ $('ohif-pilot-panel').hidden=true;$('ohif-host').hidden=true;
+ $('ohif-iframe').removeAttribute('src');
+ try{
+  const info=await api('/api/study/'+encodeURIComponent(study)+'/ohif-status');
+  if(uid===study)$('ohif-pilot-panel').hidden=!info.enabled;
+ }catch(_error){$('ohif-pilot-panel').hidden=true;}
+}
 async function openStudy(value) {
  const generation=++reviewRequest;uid=value;
  try{const d=await api('/api/study/'+encodeURIComponent(value));if(generation!==reviewRequest)return;
@@ -73,6 +81,7 @@ async function openStudy(value) {
  $('original').value=d.original_report;$('sanitized').value=d.study.sanitized||'';$('masks').value=d.study.redactions||'[]';$('review-note').value=d.study.review_note||'';$('images-reviewed').checked=false;$('report-reviewed').checked=false;
  $('report-choice').replaceChildren();d.candidates.forEach(addReport);if(d.study.report_id)$('report-choice').value=d.study.report_id;
  setupDicomSeries(d.images);
+ void openOHIFStatus(value);
  highlight();$('review').scrollIntoView({behavior:'smooth'});if(!d.original_report&&d.candidates.length)await candidateText();if(d.images.length)await viewImage();
  }catch(e){notice(e.message,true);}
 }
@@ -230,6 +239,12 @@ $('health-refresh').onclick=health;$('refresh').onclick=()=>{refresh();health();
 for(const id of ['search','filter-state','filter-modality','filter-from','filter-to','filter-sort','filter-direction'])$(id).onchange=safely(()=>{offset=0;return list();});
 $('filter-clear').onclick=safely(()=>{for(const id of ['search','filter-state','filter-modality','filter-from','filter-to'])$(id).value='';offset=0;return list();});
 $('previous').onclick=safely(()=>{offset=Math.max(0,offset-100);return list();});$('next').onclick=safely(()=>{offset+=100;return list();});$('page-number').onchange=safely(()=>{const page=Number($('page-number').value);offset=(Math.max(1,Math.min(Math.ceil(total/100)||1,Math.floor(page)||1))-1)*100;return list();});
+$('ohif-toggle').onclick=()=>{
+ if(!uid)return;
+ const host=$('ohif-host'),viewer=$('ohif-iframe');
+ if(host.hidden){viewer.src='/viewer?StudyInstanceUIDs='+encodeURIComponent(uid);host.hidden=false;$('ohif-toggle').textContent='Close OHIF viewer';}
+ else{viewer.removeAttribute('src');host.hidden=true;$('ohif-toggle').textContent='Open OHIF viewer';}
+};
 $('sql-candidate-refresh').onclick=safely(loadSQLCandidates);
 $('sql-draft-prepare').onclick=safely(async()=>{
   if(!uid)throw Error('Open a study first');
