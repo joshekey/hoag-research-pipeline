@@ -36,8 +36,7 @@ class SQLCandidateTests(unittest.TestCase):
     def test_candidate_scoped_and_preview(self):
         def broker(body):
             self.assertEqual(body["uid"], self.uid)
-            self.assertEqual(body["dob"], "19800203")
-            self.assertEqual(body["name"], "SAMPLE^PERSON")
+            self.assertEqual(set(body), {"uid", "action"} if body["action"] == "list" else {"uid", "action", "token"})
             if body["action"] == "list":
                 return {"candidates":[{"token":"abc", "name_dob":True,
                                        "exam_date_verified":False,
