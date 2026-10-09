@@ -131,3 +131,35 @@ listener exists. Tests populate a synthetic verified identity through Flask's
 test-client session APIs. **Never expose that fixture as an identity provider.**
 The currently running OHIF localhost pilot is still unguarded synthetic data
 only; no production clinical authentication or token renewals are deployed.
+
+## HOAG same-login clinical OHIF pilot (pending clinical validation)
+
+The development branch now contains:
+- `clinical_retrieval_core.py` for restricted metadata/original-byte retrieval,
+- `clinical_dicomweb.py` for QIDO/WADO pilot routes (one server-side allowlisted study),
+- `clinical_app_config_392.js` for the proven OHIF 3.9.2 local bundle,
+- `webapp.py` / dashboard button for an embedded same-origin OHIF iframe,
+- `install_clinical_pilot.sh` and `rollback_clinical_pilot.sh`.
+
+The gateway is disabled unless `/etc/hoag-research/ohif-pilot-study.uid`
+exists and names the independently confirmed 157-instance pilot. All OHIF
+routes inherit HOAG's existing Basic authentication; there is NO additional
+viewer login prompt. The clinical config intentionally has no third-party
+DICOM servers. This is clinical PHI display, not de-identification.
+
+**Not production-approved solely because tests pass.** Hospital IT must
+authorize clinical data display via this authenticated web channel, the trusted
+TLS certificate, and review the code/CSP, DICOMweb conformance, peer access,
+browser behavior and original image metadata before enabling. The first
+gateway only permits native little-endian single-frame images; the
+`preflight.py` aggregate now shows `compressed_or_other_syntax_objects`.
+If nonzero, do not enable pilot until transfer syntax support is implemented
+and tested. The client-side JS viewer has no access to source file paths.
+
+The install script requires the explicit
+`HOAG_APPROVED_CLINICAL_VIEW=YES` acknowledgment. It checks for one
+confirmed associated study, creates a root-controlled allowlist, copies only
+prebuilt OHIF assets into the app, and restarts the dashboard only. Keep the
+synthetic localhost:3001 pilot independent. Restore via the rollback script
+with the generated archive path. No SQL or DICOM research export behavior is
+changed; final pixel de-identification review remains necessary.
