@@ -5,6 +5,7 @@ filenames, UIDs, report content, or example values.
 """
 import argparse
 import json
+import re
 import sqlite3
 from collections import Counter
 from pathlib import Path
@@ -39,6 +40,15 @@ def inspect(config):
     candidate_names={normalize_name(s["name"]) for s in studies if normalize_name(s["name"])}
     candidate_patients={clean_id(s["patient"]) for s in studies if clean_id(s["patient"])}
     candidate_dates={normalize_date(s["date"]) for s in studies if normalize_date(s["date"])}
+    raw_accession_studies=set()
+    raw_patient_studies=set()
+    raw_accession_reports=set()
+    raw_patient_reports=set()
+    study_tokens=[]
+    for i,study in enumerate(studies):
+        a=clean_id(study["accession"])
+        p=clean_id(study["patient"])
+        study_tokens.append((i,a if len(a)>=5 else "",p if len(p)>=5 else ""))
     for row in reports:
         try:
             text,hash_value=engine.read_report(config,row)
@@ -50,6 +60,20 @@ def inspect(config):
             continue
         counts["verified_reports_read"]+=1
         found=clues(text,Path(row["path"]).stem)
+        # Exact full-text token occurrences are diagnostic, NOT match approval.
+        body=text.upper()
+        filename=Path(row["path"]).stem.upper()
+        for i,accession,patient in study_tokens:
+            if accession:
+                pattern=r"(?<![A-Z0-9])"+re.escape(accession)+r"(?![A-Z0-9])"
+                if re.search(pattern,body) or re.search(pattern,filename):
+                    raw_accession_studies.add(i)
+                    raw_accession_reports.add(row["id"])
+            if patient:
+                pattern=r"(?<![A-Z0-9])"+re.escape(patient)+r"(?![A-Z0-9])"
+                if re.search(pattern,body):
+                    raw_patient_studies.add(i)
+                    raw_patient_reports.add(row["id"])
         for field in ("accession","patient_id","name","dob","exam_date","study_uid","filename_key"):
             if found[field]:
                 counts["reports_with_"+field]+=1
@@ -82,6 +106,10 @@ def inspect(config):
         for key,regex in patterns.items():
             if re.search(regex,header):
                 counts["reports_with_"+key]+=1
+    counts["studies_with_any_raw_accession_occurrence"]=len(raw_accession_studies)
+    counts["studies_with_any_raw_patient_id_occurrence"]=len(raw_patient_studies)
+    counts["reports_with_any_raw_accession_occurrence"]=len(raw_accession_reports)
+    counts["reports_with_any_raw_patient_id_occurrence"]=len(raw_patient_reports)
     return dict(counts)
 
 
