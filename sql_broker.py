@@ -108,13 +108,14 @@ def main():
     account = pwd.getpwnam("hoag-indexer")
     os.umask(0o077)
     directory = Path(SOCKET).parent
-    directory.mkdir(mode=0o750, parents=True, exist_ok=True)
-    os.chown(directory, 0, account.pw_gid)
+    # systemd RuntimeDirectory supplies root:hoag-indexer, mode 0750.
+    # CAP_CHOWN is deliberately unavailable in this sandbox.
+    if not directory.is_dir():
+        raise RuntimeError("SQL broker runtime directory missing")
     if Path(SOCKET).exists():
         Path(SOCKET).unlink()
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
         server.bind(SOCKET)
-        os.chown(SOCKET, 0, account.pw_gid)
         os.chmod(SOCKET, 0o660)
         server.listen(8)
         while True:
