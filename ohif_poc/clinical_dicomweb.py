@@ -60,7 +60,9 @@ def allowed_studies(config):
         if not active:
             abort(404)
         return active
-    return [selector] if selector in active else []
+    if selector not in active:
+        abort(404)
+    return [selector]
 
 
 def authorized_uid(config, requested_uid):
