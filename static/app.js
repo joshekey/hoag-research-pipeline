@@ -81,6 +81,8 @@ async function loadSQLCandidates() {
  const data=await api('/api/study/'+encodeURIComponent(study)+'/sql-candidates');
  if(study!==uid)return;
  $('sql-candidate-original').value='';
+ $('sql-candidate-readable').value='';
+ $('sql-candidate-format-status').textContent='';
  $('sql-candidate-list').replaceChildren();
  $('sql-candidate-summary').textContent=data.total+' name-matched candidates (showing '+data.candidates.length+'). Score is a heuristic, not a probability or approval.';
  const labels={name:'Patient name',dob:'DOB',exam_date:'Examination date',exam_type:'Modality and anatomy'};
@@ -95,7 +97,15 @@ async function loadSQLCandidates() {
    line.append(button('Preview original SQL report',safely(async()=>{
      const selected=uid;
      const response=await api('/api/study/'+encodeURIComponent(selected)+'/sql-candidate/'+item.token);
-     if(uid===selected)$('sql-candidate-original').value=response.text;
+     if(uid===selected){
+       $('sql-candidate-original').value=response.text;
+       $('sql-candidate-readable').value=response.formatted || response.text;
+       $('sql-candidate-format-status').textContent=response.format_status==='xml'
+         ? 'Formatted XML report preview; compare original XML for completeness.'
+         : response.format_status==='unparsed'
+           ? 'Could not safely format this document. Showing original source; do not confirm without reviewing it.'
+           : 'Plain-text source shown without alteration.';
+     }
    })));
    const note=el('textarea');note.rows=2;note.placeholder='Explain the verified exam date, relationship and any missing/conflicting evidence (15+ characters).';
    const dateCheck=el('input');dateCheck.type='checkbox';
