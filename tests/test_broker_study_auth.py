@@ -43,6 +43,12 @@ class StudyAuthorizationTests(unittest.TestCase):
     def test_valid_catalog(self):
         self.assertEqual(self.checked()["dob"],"19800203")
 
+    def test_missing_dob_is_allowed_for_manual_candidate_review(self):
+        self.ds.PatientBirthDate = ""
+        result = self.checked()
+        self.assertEqual(result["dob"], "")
+        self.assertEqual(result["date"], "20210902")
+
     def test_incomplete_scan_rejected(self):
         with sqlite3.connect(self.root/"workflow.sqlite") as db:
             db.execute("UPDATE settings SET value='0'")
