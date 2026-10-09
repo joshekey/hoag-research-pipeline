@@ -94,6 +94,29 @@ class ClinicalOHIFPilotTests(unittest.TestCase):
         self.assertEqual(response.status_code,200)
         self.assertIn("multipart/related",response.content_type)
 
+    def test_lossless_compressed_frame_media_types(self):
+        from pydicom.encaps import encapsulate
+        from pydicom.uid import JPEGLosslessSV1, JPEG2000Lossless
+        for syntax, media in ((JPEGLosslessSV1,"image/jpeg"),
+                              (JPEG2000Lossless,"image/jp2")):
+            with self.subTest(media=media):
+                ds=synthetic_dataset(SOPS[0])
+                ds.file_meta.TransferSyntaxUID=syntax
+                ds.PixelData=encapsulate([b"FAKE_COMPRESSED_CODESTREAM"])
+                ds["PixelData"].is_undefined_length=True
+                out=io.BytesIO()
+                ds.save_as(out,enforce_file_format=True)
+                with patch("ohif_poc.clinical_dicomweb.scoped_catalog",
+                           return_value={(SERIES,SOPS[0]):{"size":len(out.getvalue())}}), \
+                     patch("ohif_poc.clinical_dicomweb.instance_bytes",
+                           return_value=out.getvalue()):
+                    reply=self.client.get("/ohif/dicomweb/studies/"+STUDY+
+                          "/series/"+SERIES+"/instances/"+SOPS[0]+"/frames/1",
+                          headers=self.auth)
+                self.assertEqual(reply.status_code,200)
+                self.assertIn(media,reply.content_type)
+                self.assertIn(b"FAKE_COMPRESSED_CODESTREAM",reply.data)
+
     def test_all_indexed_mode_lists_multiple_eligible_studies(self):
         import sqlite3
         other="1.2.826.0.1.3680043.10.543.777"
