@@ -16,6 +16,7 @@ from pathlib import Path
 
 from strict_identity_match import extract_header, normalize_date, normalize_name
 from sql_dicom_pilot import modalities, text
+from broker_study_auth import authorized_study
 
 SOCKET = "/run/hoag-sql/control.sock"
 INDEX = Path("/var/lib/hoag-research/sql-private/reports-v2.sqlite")
@@ -39,22 +40,15 @@ def report_token(key, uid, rid):
 def query(data):
     if not isinstance(data, dict) or data.get("action") not in ("list", "preview"):
         raise ValueError("Invalid request")
-    if set(data) - {"action", "uid", "name", "dob", "date", "modality", "token"}:
+    if set(data) - {"action", "uid", "token"}:
         raise ValueError("Unexpected request field")
     uid = data.get("uid", "")
     if not isinstance(uid, str) or not re.fullmatch(r"[0-9.]{1,100}", uid):
         raise ValueError("Invalid study identifier")
-    name = data.get("name", "")
-    dob = data.get("dob", "")
-    date = data.get("date", "")
-    modal = data.get("modality", "")
-    if not all(isinstance(x, str) and len(x) < 256 for x in (name, dob, date, modal)):
-        raise ValueError("Invalid metadata")
-    name = normalize_name(name)
-    dob = normalize_date(dob)
-    date = normalize_date(date)
-    if not name or not dob or not date:
-        raise ValueError("Required study identity unavailable")
+    # Never trust client-provided demographics or dates.
+    config = json.loads(Path("/etc/hoag-research/config.json").read_text())
+    study = authorized_study(uid, config)
+    name, dob, date, modal = (study[k] for k in ("name", "dob", "date", "modality"))
     wanted_token = data.get("token", "")
     if data["action"] == "preview" and (not isinstance(wanted_token, str)
                                         or not re.fullmatch(r"[a-f0-9]{32}", wanted_token)):
