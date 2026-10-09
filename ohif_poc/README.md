@@ -108,3 +108,16 @@ than from URL/query/body parameters and must not place tokens in URLs, logs,
 referers or browser history. This module does not provide revocation or replay
 prevention; key management, session revocation, and a fail-closed gateway still
 need design approval before any clinical HTTP access.
+
+## Synthetic HTTP authorization test harness (not for clinical use)
+
+`synthetic_guarded_gateway.py` wraps ONLY the synthetic QIDO/WADO test
+fixture with study-scoped HMAC capability checks and an independently supplied,
+server-trusted test principal. No token issuance route, hospital filesystem
+access, network listener, or production installation instructions are provided.
+It does not protect the separate running synthetic browser server until that
+server is explicitly replaced; do not use the test harness for actual records.
+Header-based tokens require a future secure session integration into OHIF,
+short-lived issuance, revocation, browser security tests and an approved data
+gateway before any clinical use. Unauthorized and expired-request tests are
+in `tests/test_ohif_guarded_gateway.py`.
