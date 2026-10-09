@@ -95,3 +95,16 @@ earlier two-image fixture, so restart the already-running loopback-only
 Waitress test server to load the new fixture and hard-refresh the browser.
 These data test wheel navigation and series switching, **not** radiology accuracy.
 The offline, network-disabled OHIF container remains unchanged.
+
+## Future access capability (offline only)
+
+`study_capability.py` defines a 1–300-second, HMAC-signed, study-and-user-bound
+capability for a future DICOMweb service; seven synthetic unit tests cover
+scoping, expiration, tampering and input validation. **No HTTP route uses this
+yet.** A token does not replace hospital SSO, session authentication, per-study
+authorization, header security, cache controls, or the catalog resolver. The
+future gateway must obtain the authenticated identity independently rather
+than from URL/query/body parameters and must not place tokens in URLs, logs,
+referers or browser history. This module does not provide revocation or replay
+prevention; key management, session revocation, and a fail-closed gateway still
+need design approval before any clinical HTTP access.
