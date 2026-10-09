@@ -28,15 +28,18 @@ with sqlite3.connect(catalog.as_uri()+"?mode=ro",uri=True) as db:
       ORDER BY s.uid""").fetchall()
 if active or not rows: raise SystemExit("STOP: No eligible studies or processing busy.")
 count=0
+compressed=0
 for (uid,) in rows:
     r=check(cfg,uid)
     if not (r["ready_for_dicomweb_adapter_design"] and r["multi_frame_objects"]==0
-            and r["native_uncompressed_objects"]==r["instances_indexed"]
-            and r["compressed_or_other_syntax_objects"]==0):
+            and r["native_uncompressed_objects"]+r["supported_lossless_compressed_objects"]==r["instances_indexed"]
+            and r["unsupported_transfer_syntax_objects"]==0):
         raise SystemExit("STOP: Unsupported transfer syntax or multiframe study.")
     count += r["instances_indexed"]
+    compressed += r["supported_lossless_compressed_objects"]
 print("Eligible complete studies:",len(rows))
 print("Compatible indexed instances:",count)
+print("Supported lossless compressed instances:",compressed)
 print("No patient identifiers or actual UIDs displayed.")
 PY
 sudo test -f "$GATE"
@@ -49,6 +52,7 @@ sudo chmod 0600 "$BACKUP"
 echo "Protected rollback archive created: $BACKUP"
 sudo install -o root -g root -m 0644 webapp.py "$APP/webapp.py"
 sudo install -o root -g root -m 0644 ohif_poc/clinical_dicomweb.py "$APP/ohif_poc/clinical_dicomweb.py"
+sudo /opt/hoag-research/venv/bin/python -m py_compile "$APP/webapp.py" "$APP/ohif_poc/clinical_dicomweb.py"
 sudo python3 - <<'PY'
 import os,pwd
 from pathlib import Path
