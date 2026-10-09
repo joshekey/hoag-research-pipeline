@@ -35,7 +35,7 @@ class OHIFEmbedTests(unittest.TestCase):
     def test_gate_disabled_until_allowlist_exists(self):
         source=(ROOT/"ohif_poc/clinical_dicomweb.py").read_text()
         self.assertIn("ohif-pilot-study.uid",source)
-        self.assertIn("if not ALLOWLIST.is_file()",source)
+        self.assertIn("or not ALLOWLIST.is_file()",source)
         self.assertNotIn("app.run(",source)
 
 if __name__ == "__main__":
