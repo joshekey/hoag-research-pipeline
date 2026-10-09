@@ -29,7 +29,7 @@ python3 -m venv /opt/hoag-research/venv
 # The service account must be able to traverse and read the root-installed runtime.
 chmod -R a+rX /opt/hoag-research/venv
 systemctl stop hoag-dashboard.service hoag-worker.service hoag-mount.service hoag-sql.service 2>/dev/null || true
-for file in manage.py store.py engine.py worker.py webapp.py configure.py sql_schema.py mount_service.py sql_gui_candidates.py sql_broker.py broker_study_auth.py strict_identity_match.py sql_dicom_pilot.py config.example.json; do
+for file in manage.py store.py engine.py worker.py webapp.py configure.py sql_schema.py mount_service.py sql_gui_candidates.py sql_broker.py broker_study_auth.py candidate_scoring.py sql_association.py strict_identity_match.py sql_dicom_pilot.py config.example.json; do
   install -m 0644 "$ROOT/$file" "/opt/hoag-research/$file"
 done
 install -m 0644 "$ROOT/templates/index.html" /opt/hoag-research/templates/index.html
