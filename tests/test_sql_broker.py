@@ -31,7 +31,7 @@ class BrokerTests(unittest.TestCase):
         self.request = {"action":"list", "uid":"1.2.3"}
         self.auth_patch = patch.object(sql_broker, "authorized_study", return_value={
             "name":"PERSON SAMPLE", "dob":"19800203", "date":"20210902", "modality":"MR"})
-        self.config_patch = patch.object(sql_broker.json, "loads", return_value={"state_dir":"/synthetic"})
+        self.config_patch = patch.object(sql_broker, "load_config", return_value={"state_dir":"/synthetic", "secret_key":"synthetic-key"})
         self.auth_patch.start()
         self.addCleanup(self.auth_patch.stop)
         self.config_patch.start()
