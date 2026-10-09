@@ -31,6 +31,17 @@ class ClinicalOHIFPilotTests(unittest.TestCase):
         self.client=self.app.test_client()
         self.auth={"Authorization":"Basic "+base64.b64encode(
             b"admin:synthetic-password").decode()}
+        import sqlite3
+        with sqlite3.connect(self.state/"workflow.sqlite") as db:
+            db.execute("UPDATE settings SET value='1' WHERE key='scan_complete'")
+            db.execute("""INSERT INTO studies(uid,subject,fingerprint,redactions,source_hashes,state,count)
+                          VALUES (?,?,?,?,?,?,?)""",
+                       (STUDY,"SYNTHETIC-SUBJECT","fp",'[]','{}',"unmatched",2))
+            for idx,sop in enumerate(SOPS[:2],1):
+                db.execute("""INSERT INTO files(path,root,kind,size,mtime,metadata,status,active)
+                    VALUES (?,?,?,?,?,?,?,1)""",
+                    ("/synthetic/"+str(idx)+".dcm","/synthetic","dicom",1,1,
+                     json.dumps({"StudyInstanceUID":STUDY,"SeriesInstanceUID":SERIES,"SOPInstanceUID":sop}),"ok"))
         self.allowed=self.state/"ohif.uid"
         self.allowed.write_text(STUDY)
         self.allowpatch=patch("ohif_poc.clinical_dicomweb.ALLOWLIST",self.allowed)
