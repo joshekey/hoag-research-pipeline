@@ -29,8 +29,11 @@ def require_index():
     if INDEX.parent.stat().st_mode & 0o777 != 0o700 or INDEX.stat().st_mode & 0o777 != 0o600:
         raise ValueError("SQL report index permissions invalid")
 
+def load_config():
+    return json.loads(Path("/etc/hoag-research/config.json").read_text())
+
 def secret():
-    config = json.loads(Path("/etc/hoag-research/config.json").read_text())
+    config = load_config()
     return str(config["secret_key"]).encode("utf-8")
 
 def report_token(key, uid, rid):
@@ -46,7 +49,7 @@ def query(data):
     if not isinstance(uid, str) or not re.fullmatch(r"[0-9.]{1,100}", uid):
         raise ValueError("Invalid study identifier")
     # Never trust client-provided demographics or dates.
-    config = json.loads(Path("/etc/hoag-research/config.json").read_text())
+    config = load_config()
     study = authorized_study(uid, config)
     name, dob, date, modal = (study[k] for k in ("name", "dob", "date", "modality"))
     wanted_token = data.get("token", "")
