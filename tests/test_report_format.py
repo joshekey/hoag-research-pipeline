@@ -22,6 +22,31 @@ class ReportFormatTests(unittest.TestCase):
         self.assertNotIn("SOAP-ENV:Envelope", shown)
         self.assertNotIn("<labResult>", shown)
 
+    def test_wrapped_notes_display_as_radiology_report(self):
+        synthetic = """<Envelope><Body><return><labResult>
+        <notes>MRI LUMBAR SPINE WITHOUT CONTRAST</notes>
+        <notes>CLINICAL HISTORY: Synthetic back pain.</notes>
+        <notes>COMPARISON: None</notes>
+        <notes>TECHNIQUE: Multiplanar sequences performed using</notes>
+        <notes>a 3.0 Tesla scanner.</notes>
+        <notes>_________________________________________</notes>
+        <notes>FINDINGS:</notes>
+        <notes>Small synthetic disc</notes>
+        <notes>bulge at L4-L5.</notes>
+        <notes>CONCLUSION:</notes>
+        <notes>Synthetic impression without</notes>
+        <notes>acute abnormality.</notes>
+        </labResult></return></Body></Envelope>"""
+        formatted, status = format_report(synthetic)
+        self.assertEqual(status, "xml")
+        self.assertTrue(formatted.startswith("MRI LUMBAR SPINE WITHOUT CONTRAST"))
+        self.assertIn("CLINICAL HISTORY\\nSynthetic back pain.", formatted)
+        self.assertIn("TECHNIQUE\\nMultiplanar sequences performed using a 3.0 Tesla scanner.", formatted)
+        self.assertIn("FINDINGS\\nSmall synthetic disc bulge at L4-L5.", formatted)
+        self.assertIn("CONCLUSION\\nSynthetic impression without acute abnormality.", formatted)
+        self.assertNotIn("notes:", formatted.lower())
+        self.assertNotIn("____", formatted)
+
     def test_plain_report_not_modified(self):
         raw = "FINDINGS:\n  Synthetic.\nIMPRESSION: Synthetic."
         self.assertEqual(format_report(raw), (raw, "plain"))
