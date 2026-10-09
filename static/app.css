@@ -12,3 +12,10 @@
 #dicom-series{max-width:min(470px,90vw)}
 #image-viewport:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media(max-width:700px){.dicom-scroll-controls button{padding:8px 10px}}
+
+/* OHIF must be sized in our served stylesheet: dashboard CSP blocks inline style. */
+#ohif-pilot-panel{width:100%;min-width:0}
+#ohif-host{display:block;width:100%;min-width:0;margin-top:16px}
+#ohif-host[hidden]{display:none}
+#ohif-iframe{display:block;box-sizing:border-box;width:100%;height:clamp(560px,78vh,1100px);min-height:560px;border:1px solid #405269;border-radius:8px;background:#050b15}
+@media(max-width:700px){#ohif-iframe{height:75vh;min-height:480px}}
