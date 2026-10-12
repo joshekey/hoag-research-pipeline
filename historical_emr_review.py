@@ -13,7 +13,8 @@ from pathlib import Path
 import engine
 from emr_txt_leads import exam_dates, exam_terms
 from historical_emr_overlap import build_historical_index
-from txt_candidate_discovery import clues
+from txt_candidate_discovery import clues, all_patient_names
+from strict_identity_match import normalize_name
 from store import token
 
 GATE = Path("/etc/hoag-research/historical-emr-review.enabled")
@@ -24,6 +25,16 @@ def permitted():
         return False
     return GATE.read_text().strip() == "AUTHORIZED"
 
+
+def checked_report_identity(report_text, expected_dicom_name):
+    """Require all recognized EMR names to agree with the indexed DICOM name."""
+    names = all_patient_names(report_text)
+    expected = normalize_name(expected_dicom_name)
+    if not expected or not names:
+        return 'unverified'
+    if len(names) != 1 or expected not in names:
+        return 'conflict'
+    return 'consistent'
 
 def eligible_pairs(config):
     """Re-evaluate uniquely matched pairs from indexed source metadata."""
@@ -60,8 +71,12 @@ def eligible_pairs(config):
         modes,_=exam_terms(narrative)
         if not modes:
             modes=extracted["modalities"]
-        for uid in by_name.get(extracted["name"],()):
-            if dates & history[uid]["dates"] and modes & history[uid]["modalities"]:
+        if extracted.get('name_conflict') or not extracted['name']:
+            continue
+        for uid in by_name.get(extracted['name'],()):
+            if checked_report_identity(narrative, next(iter(history[uid]['names']))) != 'consistent':
+                continue
+            if dates & history[uid]['dates'] and modes & history[uid]['modalities']:
                 matches[uid].append(row["id"])
                 report_by_id[row["id"]]=row
     # Fail closed if the strong-lead population expanded unexpectedly.
@@ -114,6 +129,8 @@ def preview(config, selected_token):
     if sha!=json.loads(report["metadata"]).get("hash"):
         raise ValueError("Report changed")
     study=lead["study"]
+    if checked_report_identity(narrative, next(iter(study["names"]))) != "consistent":
+        raise LookupError("Patient identity conflict")
     return {
         "report_text":narrative,
         "dicom_patient_name":next(iter(study["names"])),
@@ -121,6 +138,7 @@ def preview(config, selected_token):
         "dicom_modality":", ".join(sorted(study["modalities"])),
         "dicom_instances":lead["instances"],
         "evidence":["exact patient name","exam / service date","modality"],
+        "patient_identity_status":"parsed_names_consistent_manual_review_required",
         "review_only":True,
         "ohif_available":False,
         "message":"Historical DICOM files remain inactive; image review and research export are not enabled."
