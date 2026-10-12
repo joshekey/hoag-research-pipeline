@@ -40,7 +40,7 @@ def backup(config_dir, app_dir, system_dir, destination, legacy_state):
             shutil.copytree(source, destination / name, symlinks=True)
     units = destination / 'services'
     units.mkdir(mode=0o700)
-    for name in ('hoag-dashboard.service', 'hoag-worker.service', 'hoag-mount.service'):
+    for name in ('hoag-dashboard.service', 'hoag-worker.service', 'hoag-mount.service', 'hoag-sql.service'):
         source = system_dir / name
         if source.exists():
             shutil.copy2(source, units / name)

@@ -16,7 +16,30 @@ from store import audit, checkpoint, database, idle, progress, research_uid, tok
 
 TAGS = ['StudyInstanceUID', 'SeriesInstanceUID', 'SOPInstanceUID', 'SOPClassUID',
         'AccessionNumber', 'PatientID', 'IssuerOfPatientID', 'PatientName',
-        'StudyDate', 'Modality', 'BurnedInAnnotation']
+        'StudyDate', 'Modality', 'BurnedInAnnotation', 'PatientBirthDate', 'SeriesDescription', 'BodyPartExamined']
+
+
+def family_name(name):
+    name = str(name).split('=')[0].strip()
+    if '^' in name:
+        return name.split('^')[0].strip()
+    if ',' in name:
+        return name.split(',')[0].strip()
+    return name if len(name.split()) == 1 else ''
+
+
+def fts_phrase(value):
+    return '"' + value.replace('"', '""') + '"'
+
+
+def report_rows(db):
+    last = 0
+    while True:
+        rows = db.execute("SELECT * FROM files WHERE kind='report' AND active=1 AND status='ok' AND id>? ORDER BY id LIMIT 100", (last,)).fetchall()
+        if not rows:
+            return
+        last = rows[-1]['id']
+        yield from rows
 
 
 def checked_root(config, path, output=False):
@@ -131,11 +154,12 @@ def scan(config, job=None, folders=None):
     run = str(uuid.uuid4())
     count = 0
     # A changed parser/encoding must invalidate otherwise unchanged file entries.
-    parser_key = '2:' + config['report_encoding']
+    parser_key = '3:' + config['report_encoding']
     with database(config) as db:
         previous_parser = db.execute("SELECT value FROM settings WHERE key='scan_parser'").fetchone()
     reuse = previous_parser is not None and previous_parser[0] == parser_key
     pending = []
+    report_texts = {}
 
     def flush():
         if not pending:
@@ -145,7 +169,13 @@ def scan(config, job=None, folders=None):
                 VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET
                 root=excluded.root,kind=excluded.kind,size=excluded.size,mtime=excluded.mtime,
                 metadata=excluded.metadata,status=excluded.status,seen=excluded.seen,active=1''', pending)
+            for path, text in report_texts.items():
+                row = db.execute('SELECT id,status,kind FROM files WHERE path=?', (path,)).fetchone()
+                db.execute('DELETE FROM report_search WHERE rowid=?', (row['id'],))
+                if row['kind'] == 'report' and row['status'] == 'ok':
+                    db.execute('INSERT INTO report_search(rowid,text,path) VALUES (?,?,?)', (row['id'], text, path))
         pending.clear()
+        report_texts.clear()
 
     for root, selected in scopes:
         def onerror(error):
@@ -186,6 +216,7 @@ def scan(config, job=None, folders=None):
                         progress(config, job, count, 'Scanning files (including unchanged files)', 'Scanning files')
                     continue
                 kind, status, meta = 'other', 'ignored', {}
+                report_texts[str(path)] = ''
                 try:
                     if path.suffix.lower() == '.txt':
                         kind = 'report'
@@ -199,6 +230,9 @@ def scan(config, job=None, folders=None):
                         keys = re.findall(r'(?im)^\s*(?:accession(?:\s*(?:number|no\.?|#))?|acc(?:\s*#)?)\s*[:=]\s*([A-Za-z0-9._-]+)', text)
                         uids = re.findall(r'(?im)^\s*Study(?:\s*Instance)?\s*UID\s*[:=]\s*([0-9.]+)', text)
                         meta = {'hash': digest(raw), 'accessions': list(set(keys + [path.stem])), 'uids': uids}
+                        name = re.search(r'(?im)^\s*(?:patient\s*name|patient|name)\s*[:=]\s*([^\r\n]+)', text)
+                        meta['name_hint'] = name[1].strip()[:200] if name else ''
+                        report_texts[str(path)] = text
                         status = 'ok'
                     elif path.suffix.lower() == '.sql':
                         kind = 'sql'
@@ -229,7 +263,7 @@ def scan(config, job=None, folders=None):
                     status, meta = 'error', {'error': 'Cannot read this file; check permissions, text encoding, file size and DICOM identifiers'}
                 pending.append((str(path), str(root), kind, stat.st_size, stat.st_mtime_ns, json.dumps(meta), status, run))
                 count += 1
-                if len(pending) >= 100:
+                if len(pending) >= 100 or sum(map(len, report_texts.values())) >= 4 * 1024 * 1024:
                     flush()
                     progress(config, job, count, 'Scanning files; these are not study counts', 'Scanning files')
     flush()
@@ -275,7 +309,7 @@ def match(config, job=None, from_scan=False):
         db.execute("UPDATE studies SET state='needs_review',approved_fingerprint=NULL,approved_hash=NULL")
         db.execute('DELETE FROM report_keys')
         db.commit()
-        for number, row in enumerate(db.execute("SELECT * FROM files WHERE kind='report' AND active=1 AND status='ok'").fetchall(), 1):
+        for number, row in enumerate(report_rows(db), 1):
             meta = json.loads(row['metadata'])
             for key in meta['accessions']:
                 db.execute('INSERT OR IGNORE INTO report_keys VALUES (?,?,?)', (key, row['id'], 'Accession / filename'))
@@ -312,8 +346,16 @@ def match(config, job=None, from_scan=False):
             candidates = db.execute("SELECT report,group_concat(DISTINCT reason) reason FROM report_keys WHERE (key=? AND reason='Study UID') OR (key=? AND reason='Accession / filename' AND key<>'') GROUP BY report", (uid, first['AccessionNumber'])).fetchall()
             for candidate in candidates:
                 db.execute('INSERT INTO candidates VALUES (?,?,?)', (uid, candidate['report'], candidate['reason']))
-            if candidates and state != 'conflict':
-                db.execute('UPDATE studies SET state=? WHERE uid=?', ('candidate' if len(candidates) == 1 else 'ambiguous', uid))
+            surname = family_name(first['PatientName'])
+            if surname:
+                reports = db.execute('''SELECT f.id FROM report_search JOIN files f ON f.id=report_search.rowid
+                    WHERE report_search MATCH ? AND f.active=1 AND f.status='ok' AND f.kind='report' LIMIT 101''',
+                    (fts_phrase(surname),)).fetchall()
+                for report in reports:
+                    db.execute('INSERT OR IGNORE INTO candidates VALUES (?,?,?)', (uid, report['id'], 'Last name in report or filename; verify patient and study'))
+            candidate_count = db.execute('SELECT count(*) FROM candidates WHERE study=?', (uid,)).fetchone()[0]
+            if candidate_count and state != 'conflict':
+                db.execute('UPDATE studies SET state=? WHERE uid=?', ('candidate' if candidate_count == 1 and candidates else 'ambiguous', uid))
             count += 1
             db.commit()
             if count % 25 == 0:
@@ -363,6 +405,10 @@ def sanitize_report(text, identifiers, nlp=None):
 
 
 def prepare(config, uid, report_id, job=None, nlp=None):
+    # Check explicit report identity against the source DICOM before de-identification.
+    from txt_review import preview
+    if not preview(config, uid, report_id)['preview_allowed']:
+        raise ValueError('Conflicting report identity/examination; preparation blocked')
     with database(config) as db:
         require_scan(db)
         study = db.execute('SELECT * FROM studies WHERE uid=?', (uid,)).fetchone()

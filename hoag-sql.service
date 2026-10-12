@@ -1,0 +1,48 @@
+[Unit]
+Description=HOAG read-only SQL report candidate broker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=hoag-indexer
+UMask=0077
+WorkingDirectory=/opt/hoag-research
+ExecStart=/opt/hoag-research/venv/bin/python /opt/hoag-research/sql_broker.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+# Retain only DAC_READ_SEARCH to read the protected index.
+# RuntimeDirectory is managed by systemd as root:hoag-indexer;
+# never add CAP_CHOWN or chown paths from Python.
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+AmbientCapabilities=
+PrivateNetwork=yes
+IPAddressDeny=any
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX
+RuntimeDirectory=hoag-sql
+RuntimeDirectoryMode=0750
+MemoryMax=256M
+ReadOnlyPaths=/var/lib/hoag-research/sql-private /etc/hoag-research
+ReadWritePaths=/run/hoag-sql
+
+[Install]
+WantedBy=multi-user.target

@@ -14,3 +14,4 @@ config.json
 *.credentials
 *.log
 .pytest_cache/
+node_modules/
