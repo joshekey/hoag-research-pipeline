@@ -30,7 +30,7 @@ async function refresh() {
   $('filter-modality').replaceChildren(el('option','All modalities'));$('filter-modality').firstChild.value='';
   s.modalities.forEach(value=>{const o=el('option',value||'Unknown');o.value=value;$('filter-modality').append(o);});$('filter-modality').value=currentModality;
   renderActivity();renderJobs();renderQueues();renderExports();renderSQL(s.sql);
-  for(const id of ['scan','scan-selected','match','prepare-batch','export-batch','prepare','approve','export','mount-submit'])$(id).disabled=active()||(id==='scan-selected'&&!chosenFolders.size);
+  for(const id of ['scan','scan-selected','match','prepare-batch','export-batch','prepare','approve','export','mount-submit'])$(id).disabled=active()||(id==='scan-selected'&&!chosenFolders.size)||(id==='prepare'&&!$('report-choice').value);
   await list();
  } catch(e){notice(e.message,true);}finally{refreshing=false;}
 }
@@ -135,6 +135,8 @@ async function openStudy(value) {
  if(d.study.last_error)notice(d.study.last_error,true);
  $('original').value=d.original_report;$('sanitized').value=d.study.sanitized||'';$('masks').value=d.study.redactions||'[]';$('review-note').value=d.study.review_note||'';$('images-reviewed').checked=false;$('report-reviewed').checked=false;
  $('report-choice').replaceChildren();d.candidates.forEach(addReport);if(d.study.report_id)$('report-choice').value=d.study.report_id;
+ $('legacy-txt-tools').open=false;
+ updateLegacyTXTAvailability(d.candidates.length);
  setupDicomSeries(d.images);
  void reconcileStudyReports(d, value, generation);
  void openOHIFStatus(value);
@@ -258,6 +260,16 @@ async function loadSQLCandidates() {
  });
  return data.total;
 }
+function updateLegacyTXTAvailability(count){
+ const select=$('report-choice'),prepare=$('prepare'),status=$('legacy-txt-availability');
+ const available=select.options.length>0&&Boolean(select.value);
+ prepare.disabled=!available||active();
+ status.textContent=count>0
+  ? count+' indexed TXT report candidate(s) exist. Verify the selected report belongs to THIS study.'
+  : available
+    ? 'Manual TXT filename search results require independent identity and exam verification.'
+    : 'No indexed TXT report candidates for this study. Legacy preparation is unavailable unless a verified active TXT report is selected.';
+}
 function addReport(r) {const o=el('option',(r.reason?r.reason+' - ':'Manual selection - ')+r.path);o.value=r.id;$('report-choice').append(o);}
 async function candidateText() {const selected=$('report-choice').value;const study=uid;if(!selected){$('original').value='';return;}const report=await api('/api/report/'+selected);if(selected===$('report-choice').value&&study===uid)$('original').value=report.text;}
 function highlight() {
@@ -367,7 +379,11 @@ $('sql-draft-prepare').onclick=safely(async()=>{
     ? 'Draft prepared for manual de-identification review. NOT approved or exportable.'
     : 'SQL draft unavailable.';
 });
-$('prepare').onclick=()=>queue('prepare',{uid,report_id:Number($('report-choice').value)});
+$('prepare').onclick=()=>{
+ const reportID=Number($('report-choice').value);
+ if(!uid||!Number.isSafeInteger(reportID)||reportID<=0){notice('Choose a valid active TXT report before preparation.',true);return;}
+ queue('prepare',{uid,report_id:reportID});
+};
 $('view').onclick=viewImage;
 $('dicom-series').onchange=()=>{showSeries();void viewImage();};
 $('image-choice').onchange=()=>{$('frame').value=0;updateStack();void viewImage();};
@@ -386,8 +402,8 @@ $('image-viewport').addEventListener('wheel',event=>{
 $('image-viewport').addEventListener('keydown',event=>{
  if(['ArrowRight','ArrowDown'].includes(event.key)){event.preventDefault();navigateStack(1);}
  if(['ArrowLeft','ArrowUp'].includes(event.key)){event.preventDefault();navigateStack(-1);}
-});$('report-choice').onchange=safely(async()=>{$('report-reviewed').checked=false;$('sanitized').value='';highlight();await candidateText();});
-$('find-report').onclick=safely(async()=>{const reports=await api('/api/reports?q='+encodeURIComponent($('report-search').value));$('report-choice').replaceChildren();reports.forEach(addReport);$('report-reviewed').checked=false;$('sanitized').value='';highlight();await candidateText();});
+});$('report-choice').onchange=safely(async()=>{updateLegacyTXTAvailability($('report-choice').options.length);$('report-reviewed').checked=false;$('sanitized').value='';highlight();await candidateText();});
+$('find-report').onclick=safely(async()=>{const reports=await api('/api/reports?q='+encodeURIComponent($('report-search').value));$('report-choice').replaceChildren();reports.forEach(addReport);updateLegacyTXTAvailability(0);$('report-reviewed').checked=false;$('sanitized').value='';highlight();await candidateText();});
 $('sanitized').oninput=()=>{$('report-reviewed').checked=false;highlight();};
 $('approve').onclick=safely(async()=>{await api('/api/study/'+encodeURIComponent(uid)+'/approve',{text:$('sanitized').value,rectangles:masks(),note:$('review-note').value,images_reviewed:$('images-reviewed').checked,report_reviewed:$('report-reviewed').checked});notice('Study approved for export.');await openStudy(uid);await refresh();});
 $('export').onclick=()=>queue('export',{uid});$('reload-review').onclick=()=>openStudy(uid);$('prepare-batch').onclick=()=>queue('prepare_candidates');$('export-batch').onclick=()=>queue('export_approved');$('job-filter').onchange=()=>{if(latest)renderJobs();};$('schema-search').oninput=()=>{if(latest)renderSQL(latest.sql);};
