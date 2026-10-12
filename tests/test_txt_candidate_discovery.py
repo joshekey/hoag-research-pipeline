@@ -16,6 +16,21 @@ class TXTDiscoveryTests(unittest.TestCase):
         obj.update(update)
         return obj
 
+    def test_conflicting_emr_patient_name_label_suppresses_candidate(self):
+        report=clues("DOE, JANE (MR # EMR123)\\n"
+                     "Patient Name - OTHER, JOHN\\n"
+                     "Date of Service: 10/01/2026\\n"
+                     "MRI CERVICAL SPINE\\n")
+        self.assertTrue(report["name_conflict"])
+        self.assertEqual(report["name"],"")
+
+    def test_consistent_printed_header_and_hyphen_label(self):
+        report=clues("DOE, JANE (MR # EMR123)\\n"
+                     "Patient Name - JANE DOE\\n"
+                     "Date of Service: 10/01/2026\\n")
+        self.assertFalse(report["name_conflict"])
+        self.assertEqual(report["name"],"DOE JANE")
+
     def test_printed_results_header_parenthesized_mrn_and_accession(self):
         narrative=(
             "--- Page 1 ---\n"
