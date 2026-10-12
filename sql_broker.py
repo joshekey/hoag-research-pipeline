@@ -18,6 +18,7 @@ from strict_identity_match import extract_header, normalize_date, normalize_name
 from sql_dicom_pilot import modalities, text
 from broker_study_auth import authorized_study
 from candidate_scoring import score as candidate_score
+from txt_candidate_discovery import all_patient_names
 
 SOCKET = "/run/hoag-sql/control.sock"
 INDEX = Path("/var/lib/hoag-research/sql-private/reports-v2.sqlite")
@@ -68,6 +69,15 @@ def query(data):
             header = extract_header(narrative)
             # Require matching name for discovery; DOB may be missing, never fabricate it.
             if not name or header["name"] != name:
+                continue
+            # Check every explicit patient-name declaration, not just the first
+            # parsed SQL header. Never show a report with another named patient.
+            mentioned_names=all_patient_names(text(narrative))
+            if not mentioned_names or mentioned_names != {name}:
+                continue
+            # A conflicting DOB is disqualifying; a missing DOB remains a
+            # clearly incomplete evidence case, never an approved match.
+            if dob and header["dob"] and header["dob"] != dob:
                 continue
             token = report_token(key, uid, rid)
             if data["action"] == "preview":
