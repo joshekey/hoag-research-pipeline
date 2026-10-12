@@ -154,15 +154,19 @@ def browse_folders(config, root_index, relative='.', offset=0):
     root = checked_root(config, config['source_roots'][root_index])
     path = selected_path(root, relative)
     children = sorted((p for p in path.iterdir() if not p.is_symlink() and p.is_dir()), key=lambda p: p.name.casefold())
-    return {'root': root_index, 'relative': relative, 'total': len(children),
+    exports=sorted(p.name for p in path.iterdir() if p.is_file() and not p.is_symlink() and p.suffix.lower()=='.sql')[:200]
+    return {'root': root_index, 'relative': relative, 'sql_files':exports, 'total': len(children),
             'children': [{'name': p.name, 'relative': p.relative_to(root).as_posix()} for p in children[offset:offset + 200]]}
 
 
-def scan(config, job=None, folders=None, force=False):
+def scan(config, job=None, folders=None, force=False, add_reports=False):
     with database(config) as db:
-        db.execute("UPDATE settings SET value='0' WHERE key='scan_complete'")
+        if add_reports:
+            require_scan(db)
+        else:
+            db.execute("UPDATE settings SET value='0' WHERE key='scan_complete'")
+            db.execute("UPDATE studies SET state='needs_review', approved_fingerprint=NULL, approved_hash=NULL")
         db.execute("INSERT OR REPLACE INTO settings VALUES ('suggestions_ready','0')")
-        db.execute("UPDATE studies SET state='needs_review', approved_fingerprint=NULL, approved_hash=NULL")
     progress(config, job, 0, 'Discovering files; study catalog builds in the next phase', 'Scanning files')
     scopes = selection(config, folders)
     run = str(uuid.uuid4())
@@ -207,6 +211,7 @@ def scan(config, job=None, folders=None, force=False):
                         f'SELECT * FROM files WHERE path IN ({placeholders})', keys)})
             for name in names:
                 path = Path(directory) / name
+                if add_reports and path.suffix.lower() not in ('.txt','.sql'):continue
                 if count % 100 == 0:
                     checkpoint(config, job)
                 try:
@@ -282,15 +287,29 @@ def scan(config, job=None, folders=None, force=False):
                     progress(config, job, count, 'Scanning files; these are not study counts', 'Scanning files')
     flush()
     with database(config) as db:
-        db.execute('UPDATE files SET active=0 WHERE seen IS NULL OR seen<>?', (run,))
-        db.execute("INSERT OR REPLACE INTO settings VALUES ('scan_folders',?)", (json.dumps(folders),))
-        db.execute("INSERT OR REPLACE INTO settings VALUES ('scan_parser',?)", (parser_key,))
-    progress(config, job, count, 'File scan complete; building study catalog and report links', 'Building studies')
-    match(config, job, from_scan=True)
-    with database(config) as db:
-        db.execute("UPDATE settings SET value='1' WHERE key='scan_complete'")
-        db.execute("INSERT OR REPLACE INTO settings VALUES ('last_scan',?)", (str(time.time()),))
-    progress(config, job, count, 'Scan and candidate matching completed')
+        if add_reports:
+            for root,selected in scopes:
+                prefix=str(selected)+os.sep
+                db.execute("UPDATE files SET active=0 WHERE root=? AND kind IN ('report','sql') AND substr(path,1,?)=? AND (seen IS NULL OR seen<>?)",(str(root),len(prefix),prefix,run))
+            previous=db.execute("SELECT value FROM settings WHERE key='scan_folders'").fetchone()
+            saved=json.loads(previous[0]) if previous else None
+            if isinstance(saved,list):
+                combined=saved+[item for item in folders if item not in saved]
+                db.execute("INSERT OR REPLACE INTO settings VALUES ('scan_folders',?)",(json.dumps(combined),))
+            db.execute("UPDATE studies SET state='needs_review',approved_hash=NULL,approved_fingerprint=NULL WHERE report_id IN (SELECT id FROM files WHERE kind='report' AND (active=0 OR json_extract(metadata,'$.hash')<>studies.report_hash))")
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('reports_imported',?)",(str(time.time()),))
+        else:
+            db.execute('UPDATE files SET active=0 WHERE seen IS NULL OR seen<>?', (run,))
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('scan_folders',?)", (json.dumps(folders),))
+        if not add_reports:db.execute("INSERT OR REPLACE INTO settings VALUES ('scan_parser',?)", (parser_key,))
+    if not add_reports:
+        progress(config, job, count, 'File scan complete; building study catalog and report links', 'Building studies')
+        match(config, job, from_scan=True)
+        with database(config) as db:
+            db.execute("UPDATE settings SET value='1' WHERE key='scan_complete'")
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('last_scan',?)", (str(time.time()),))
+    progress(config,job,count,'Reports added; existing DICOM catalog retained' if add_reports else 'Scan and candidate matching completed')
+
 
 
 def require_scan(db):

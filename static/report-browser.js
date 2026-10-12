@@ -20,7 +20,7 @@ async function browseReports(){
    clearBrowserPreview();box.checked=true;const request=browserSerial;
    const result=await api('/api/report-browser/preview',{source:item.source,ref:item.ref});
    if(request!==browserSerial||result.source!==item.source||String(result.ref)!==String(item.ref))return;
-   box.checked=true;browserSelection=result;$('browser-text').value=result.text;
+   box.checked=true;browserSelection=result;activateReportTab('preview');$('browser-text').value=result.text;
    $('browser-identity').textContent='REPORT RECORD: '+item.source.toUpperCase()+' | Name: '+(result.identity?.name||item.name||'unknown')+' | DOB: '+(result.identity?.dob||'unknown')+' | Source date (verify exam): '+(result.date||result.identity?.exam_date||result.identity?.report_date||'unknown')+'. Compare this source record with the selected DICOM study before association.';
   };
   box.onchange=safely(async()=>{if(box.checked)await preview();else clearBrowserPreview();});
@@ -47,5 +47,5 @@ function setupReportBrowser(){
   }finally{associationBusy=false;$('browser-associate').disabled=!uid||!selectedStudy||selectedStudy.uid!==uid||!browserSelection||!$('browser-confirm').checked||active();}
  });
  $('reindex-catalog').onclick=safely(async()=>{if(!$('reindex-confirm').checked)throw Error('Confirm reindexing first');await queue('reindex');});
- $('reindex-sql').onclick=safely(async()=>{if(!$('reindex-confirm').checked)throw Error('Confirm reindexing first');const id=Number($('reindex-sql-file').value);if(!id)throw Error('Select an indexed SQL dump');await queue('reindex_sql',{file_id:id});});
+ $('reindex-sql').onclick=safely(async()=>{if(!$('sql-import-confirm').checked)throw Error('Confirm the SQL import review requirement first');const id=Number($('reindex-sql-file').value);if(!id)throw Error('Add the export folder first, then select its SQL file');await queue('reindex_sql',{file_id:id});});
 }

@@ -97,7 +97,7 @@ class TabbedWorkflowTests(unittest.TestCase):
     def test_sql_hold_and_blue_tabs_are_visible_without_enabling_gates(self):
         client,auth=self.client()
         response=client.get('/',headers=auth)
-        for label in ('1 · Sources','2 · Images','3 · Reports','4 · Anonymize','5 · Export'):
+        for label in ('1 · Indexed DICOM','2 · TXT','3 · Privacy','4 · Export'):
             self.assertIn(label,response.get_data(as_text=True))
         with patch('webapp.SQL_REVIEW_GATE',self.root/'absent-gate'):
             self.assertEqual(client.get(f'/api/study/{self.uid}/sql-candidates',headers=auth).status_code,503)

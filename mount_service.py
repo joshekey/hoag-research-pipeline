@@ -89,6 +89,7 @@ def apply(body, config):
     previous = credential.read_bytes() if credential.exists() else None
     was_mounted = os.path.ismount(target)
     writable = data['slot'] == 'output'
+    new_source=data['slot']=='database' and target not in config['source_roots']
     options = ','.join(['rw' if writable else 'ro', 'credentials=' + str(credential), 'vers=3.1.1', 'seal',
                         'uid=' + str(account.pw_uid), 'gid=' + str(account.pw_gid),
                         'file_mode=' + ('0600' if writable else '0400'), 'dir_mode=' + ('0700' if writable else '0500'),
@@ -98,7 +99,8 @@ def apply(body, config):
     with catalog(config, account) as db:
         db.execute('BEGIN IMMEDIATE')
         idle(db)
-        if not writable:
+        if new_source:db.execute("INSERT OR REPLACE INTO settings VALUES ('suggestions_ready','0')")
+        if not writable and not new_source:
             db.execute("UPDATE settings SET value='0' WHERE key='scan_complete'")
             db.execute("INSERT OR REPLACE INTO settings VALUES ('suggestions_ready','0')")
             db.execute("UPDATE studies SET state='needs_review',approved_hash=NULL,approved_fingerprint=NULL")

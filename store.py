@@ -119,7 +119,7 @@ def audit(db, actor, action, target=''):
 
 
 def enqueue(config, kind, payload=None, actor='admin'):
-    if kind not in ('scan', 'match', 'prepare', 'prepare_candidates', 'export', 'export_approved', 'inspect_sql', 'validate_export', 'reindex', 'reindex_sql', 'suggest_reports'):
+    if kind not in ('scan', 'match', 'prepare', 'prepare_candidates', 'export', 'export_approved', 'inspect_sql', 'validate_export', 'reindex', 'reindex_sql', 'suggest_reports', 'add_reports'):
         raise ValueError('Unknown job type')
     with database(config) as db:
         db.execute('BEGIN IMMEDIATE')

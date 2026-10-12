@@ -24,6 +24,7 @@ function fixture(prefs={}){
   if(pending.has(route.pathname)){const wait=pending.get(route.pathname);pending.delete(route.pathname);await wait;}
   if(route.pathname==='/api/status')return response({version:'1.2.0',counts:[{kind:'dicom',status:'ok',count:2},{kind:'report',status:'ok',count:2}],states:[{state:'candidate',count:2}],jobs:prefs.jobs||[],settings:{scan_complete:'1',...(prefs.settings||{})},modalities:['CT'],sources:['/synthetic/images','/synthetic/reports'],output:'/synthetic/output',sql:[],exports:[],now:1});
   if(route.pathname==='/api/research-queue')return response({ready:!!prefs.suggestions,rows:[],counts:prefs.suggestions?[{bucket:'strong',count:2}]:[],total:0});
+  if(route.pathname==='/api/sql-readiness')return response({dumps:[],broker:{available:false,reports:null,message:'Synthetic broker unavailable'}});
   if(route.pathname==='/api/health')return response({shares:[]});
   if(route.pathname==='/api/studies')return response({rows:Object.values(studies),total:2});
   if(route.pathname==='/api/report-browser/search'){const body=JSON.parse(options.body);if(body.q==='FAIL')return response({error:'Synthetic source failure'},false);const id=body.q==='Example'?'1.2.4':'1.2.3';return response({groups:[{source:'txt',total:1,rows:[{source:'txt',ref:id==='1.2.3'?'31':'42',path:'Synthetic report '+id,name:studies[id].name}]}],errors:[]});}
@@ -42,7 +43,7 @@ function fixture(prefs={}){
   if(route.pathname.startsWith('/api/image/'))return{ok:true,blob:async()=>({marker:route.pathname.split('/').pop()}),headers:{get:name=>({'X-Frames':'1','X-Columns':'8','X-Rows':'8'}[name])}};
   throw Error('Unexpected synthetic API '+route.pathname);
  };
- w.eval(fs.readFileSync(path.join(root,'static/research-workspace.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/report-browser.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/app.js'),'utf8'));
+ w.eval(fs.readFileSync(path.join(root,'static/workbench.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/research-workspace.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/report-browser.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/app.js'),'utf8'));
  return{dom,w,$,open(uid){const accession=studies[uid].accession;const row=[...$('study-rows').children].find(row=>row.textContent.includes(accession));return row.querySelector('button').onclick();},hold(route){let release;pending.set(route,new Promise(resolve=>{release=resolve;}));return release;}};
 }
 
@@ -115,4 +116,8 @@ test('failed jobs and partial source coverage remain visibly distinct from ready
  const job={id:9,state:'failed',kind:'reindex_sql',progress:100,message:'Synthetic SQL rebuild failed',created:1,finished:1};
  const failed=fixture({jobs:[job]});try{await settle();assert.match(failed.$('workspace-operation').textContent,/ACTION NEEDED/);assert.match(failed.$('workspace-operation').textContent,/Synthetic SQL rebuild failed/);}finally{failed.dom.window.close();}
  const partial=fixture({settings:{suggestions_ready:'1',suggestions_sql:'unavailable — TXT suggestions only',suggestions_txt:'2 of 2 TXT reports searchable',suggestions_run:'synthetic'}});try{await settle();assert.match(partial.$('workspace-operation').textContent,/PARTIAL COVERAGE/);assert.match(partial.$('matching-health').textContent,/unavailable/);}finally{partial.dom.window.close();}
+});
+
+test('study-first workbench keeps DICOM visible while comparing reports',async()=>{
+ const f=fixture({suggestions:true});try{await settle();await f.open('1.2.3');await settle();assert.equal(f.$('research-workbench').hidden,false);assert.equal(f.$('image-pane').hidden,false);assert.equal(f.$('matching').hidden,false);assert.equal(f.$('studies').closest('.study-browser')!==null,true);f.$('suggestion-list').querySelector('button').click();await settle();assert.equal(f.$('report-preview').hidden,false);assert.equal(f.$('suggestion-pane').hidden,true);assert.equal(f.$('image-pane').hidden,false);assert.match(f.$('sql-readiness').textContent,/No SQL dump indexed/);f.$('next-anonymize').click();await settle();assert.equal(f.$('privacy-dock').hidden,false);assert.equal(f.$('image-pane').hidden,false);}finally{f.dom.window.close();}
 });

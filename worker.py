@@ -20,6 +20,9 @@ def process_one(config):
         payload = json.loads(job['payload'])
         if job['kind'] == 'scan':
             engine.scan(config, job['id'], payload.get('folders'))
+        elif job['kind'] == 'add_reports':
+            if not payload.get('folders'):raise ValueError('Select TXT/SQL source folders to import')
+            engine.scan(config,job['id'],payload['folders'],add_reports=True)
         elif job['kind'] == 'reindex':
             with database(config) as db:
                 saved=db.execute("SELECT value FROM settings WHERE key='scan_folders'").fetchone()
@@ -74,7 +77,7 @@ def process_one(config):
                 raise ValueError(f'{failures} of {len(targets)} studies failed; successful studies retained, inspect remaining study reviews')
         else:
             raise ValueError('Unknown job')
-        if job['kind'] in ('scan','reindex','reindex_sql','match'):
+        if job['kind'] in ('scan','reindex','reindex_sql','match','add_reports'):
             from research_matching import build
             build(config,job['id'])
         with database(config) as db:

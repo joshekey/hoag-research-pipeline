@@ -49,6 +49,8 @@ def request(config, index, data):
                 if not totals['narratives']: raise ValueError('No supported SQL narratives; old index retained')
                 staging.replace(index)
                 with lock: current.update(state='completed',total=totals['narratives'])
+            except ValueError as error:
+                with lock:current.update(state='failed',error='SQL rebuild failed: '+str(error)+'. Previous index retained. Inspect the export schema in Operations.')
             except Exception:
                 with lock: current.update(state='failed',error='SQL rebuild failed or cancelled; old index retained. Check dump schema, relationships, mount, and available disk space.')
             finally: staging.unlink(missing_ok=True)

@@ -1,8 +1,8 @@
-# Researcher workflow — 1.4.0
+# Researcher workflow — 1.5.0
 
 ## What the software does for you
 
-The workspace follows Sources → Images → Reports → Anonymize & review → Export.
+The workspace starts with Indexed DICOM → TXT & SQL reports → Privacy review → Export. Images and reports remain together while you compare them. Source management is under Operations.
 Three independent source shares may hold DICOM, TXT reports, and a SQL dump.
 The output share is a fourth, writable destination. The source shares stay read-only.
 
@@ -14,6 +14,10 @@ uses local SQLite evidence and indexed lookup keys, not an all-studies-by-all-re
 comparison or repeated SMB reads of every narrative. Processing uses one worker;
 report evidence is ingested in pages and only ten ranked leads per study are shown.
 Manual browsing remains available for the full source catalog.
+
+## Add reports without rescanning DICOM
+
+Wait until current jobs finish. In **Operations**, connect the report source if needed, choose its folder, and click **Add TXT / SQL from selected folders**. This imports report files while retaining the indexed DICOM catalog. For an EMR SQL export, then select the discovered dump, confirm the SQL review requirement, and click **Import reports from EMR export**. Follow Processing jobs; report suggestions refresh automatically. SQL imports require the supported dump schema. Use **Inspect export schema** if the import fails. Full source scans and forced reindexing remain under Advanced and are not required to add reports.
 
 ## Start from the review queue
 

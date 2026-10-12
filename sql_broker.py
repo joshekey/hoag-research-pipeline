@@ -43,6 +43,18 @@ def report_token(key, uid, rid):
                     hashlib.sha256).hexdigest()[:32]
 
 def query(data):
+    if isinstance(data,dict) and data.get('action')=='status':
+        if set(data)!={'action'}:raise ValueError('Invalid SQL status request')
+        try:
+            require_index()
+            from contextlib import closing
+            with closing(sqlite3.connect(INDEX.as_uri()+'?mode=ro',uri=True)) as db:
+                count=db.execute('SELECT count(*) FROM narratives').fetchone()[0]
+            return {'available':True,'reports':count,'message':'SQL report index ready' if count else 'SQL index contains no report narratives'}
+        except ValueError as error:
+            return {'available':False,'reports':None,'message':str(error)}
+        except sqlite3.Error:
+            return {'available':False,'reports':None,'message':'SQL index unreadable or unsupported; rebuild from the indexed dump'}
     if isinstance(data, dict) and data.get('action') in ('reindex_start','reindex_status'):
         from sql_reindex import request
         return request(load_config(), INDEX, data)

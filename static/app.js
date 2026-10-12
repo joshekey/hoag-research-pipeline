@@ -18,6 +18,7 @@ async function api(path,body) {
 
 function safely(fn) { return async()=>{try{await fn();}catch(e){notice(e.message,true);}}; }
 function cell(row,text,cls) { const c=el('td',text??'',cls); row.append(c); return c; }
+function displayPatient(value){return String(value||'').split('=')[0].replace(/\^/g,' ').trim();}
 function bytes(n) { if(n==null)return 'Not measured';const units=['B','KiB','MiB','GiB','TiB'];let i=0;while(n>=1024&&i<4){n/=1024;i++;}return n.toFixed(i?1:0)+' '+units[i]; }
 function date(n) { return n?new Date(n*1000).toLocaleString():'Not yet'; }
 function elapsed(n) { const seconds=Math.max(0,Math.floor(n));return Math.floor(seconds/3600)+'h '+Math.floor(seconds%3600/60)+'m '+seconds%60+'s'; }
@@ -36,10 +37,10 @@ async function refresh() {
   $('filter-modality').replaceChildren(el('option','All modalities'));$('filter-modality').firstChild.value='';
   s.modalities.forEach(value=>{const o=el('option',value||'Unknown');o.value=value;$('filter-modality').append(o);});$('filter-modality').value=currentModality;
   renderActivity();renderJobs();renderQueues();renderExports();renderSQL(s.sql);
-  for(const id of ['scan','scan-selected','match','prepare-batch','export-batch','prepare','approve','export','mount-submit'])$(id).disabled=active()||(id==='scan-selected'&&!chosenFolders.size)||(id==='prepare'&&!$('report-choice').value);
+  for(const id of ['scan','scan-selected','add-report-folders','match','prepare-batch','export-batch','prepare','approve','export','mount-submit'])$(id).disabled=active()||(['scan-selected','add-report-folders'].includes(id)&&!chosenFolders.size)||(id==='prepare'&&!$('report-choice').value);
   $('release-version').textContent='v'+s.version;updateExportSelection();updateResearchProgress();
   const savedSQL=$('reindex-sql-file').value;$('reindex-sql-file').replaceChildren(el('option','Select SQL dump'));$('reindex-sql-file').firstChild.value='';
-  for(const item of s.sql||[]){const o=el('option',item.path);o.value=item.id;$('reindex-sql-file').append(o);}$('reindex-sql-file').value=savedSQL;
+  for(const item of s.sql||[]){const o=el('option',item.path);o.value=item.id;$('reindex-sql-file').append(o);}$('reindex-sql-file').value=savedSQL||(s.sql?.length===1?String(s.sql[0].id):'');
   $('reindex-catalog').disabled=active();$('reindex-sql').disabled=active();
   $('browser-associate').disabled=active()||associationBusy||!uid||!selectedStudy||selectedStudy.uid!==uid||!browserSelection||!$('browser-confirm').checked;
   await list();
@@ -71,7 +72,7 @@ async function list() {
  const generation=++listing;const query=new URLSearchParams({paged:'1',q:$('search').value,offset,state:$('filter-state').value,modality:$('filter-modality').value,from:$('filter-from').value,to:$('filter-to').value,sort:$('filter-sort').value,direction:$('filter-direction').value});
  const result=await api('/api/studies?'+query);if(generation!==listing)return;
  total=result.total;if(offset>=total&&offset>0){offset=Math.max(0,Math.ceil(total/100)-1)*100;return list();}
- $('study-rows').replaceChildren();for(const s of result.rows){const tr=el('tr');const c=cell(tr,s.name||s.patient||s.subject);c.append(el('span',s.subject,'sub'));[s.accession,s.date,s.modality,s.count].forEach(v=>cell(tr,v));cell(tr,labels[s.state]||s.state,'status');cell(tr,'').append(button('View images',()=>openStudy(s.uid)));$('study-rows').append(tr);}
+ $('study-rows').replaceChildren();for(const s of result.rows){const tr=el('tr');const c=cell(tr,displayPatient(s.name)||s.patient||s.subject);c.append(el('span',s.subject,'sub'));[s.accession,s.date,s.modality,s.count].forEach(v=>cell(tr,v));cell(tr,labels[s.state]||s.state,'status');cell(tr,'').append(button('View images',()=>openStudy(s.uid)));$('study-rows').append(tr);}
  if(!result.rows.length){const tr=el('tr');const c=cell(tr,active()?'No studies visible yet. Check the processing phase above.':'No studies match these filters. Clear filters or run an index.');c.colSpan=7;$('study-rows').append(tr);}
  $('catalog-summary').textContent=total.toLocaleString()+' matching studies'+(total?' | Showing '+(offset+1)+'-'+Math.min(offset+100,total):'');$('page-number').value=Math.floor(offset/100)+1;$('page-count').textContent='of '+Math.max(1,Math.ceil(total/100));$('page-number').max=Math.max(1,Math.ceil(total/100));$('previous').disabled=offset===0;$('next').disabled=offset+100>=total;
 }
@@ -87,20 +88,20 @@ async function openOHIFStatus(study){
 }
 const WORKSPACE_SCREENS=new Set(['overview','studies','review','matching','packages','administration','source-settings','jobs','historical-emr-review','database','help']);
 function showWorkspaceScreen(){
- const requested=(window.location.hash||'#studies').slice(1);
- const screen=WORKSPACE_SCREENS.has(requested)?requested:'studies';
+ const requested=(window.location.hash||'#studies').slice(1),screen=WORKSPACE_SCREENS.has(requested)?requested:'studies';
  const effective=screen==='review'&&!uid?'studies':screen;
- for(const id of WORKSPACE_SCREENS){const element=$(id);if(element)element.hidden=id!==effective;}
- $('activity').hidden=!['overview','jobs'].includes(effective);
- $('workflow').hidden=true;
- if(effective==='overview')$('source-settings').hidden=false;
- const inStudy=['studies','matching','review'].includes(effective)&&Boolean(selectedStudy);
- $('review').hidden=!inStudy;
- const images=effective==='studies', reports=effective==='matching', privacy=effective==='review';
- document.querySelector('.review-grid').classList.toggle('only-images',images);
- for(const n of document.querySelectorAll('[data-phase]'))n.hidden=!inStudy||!n.dataset.phase.split(' ').some(p=>p==='images'&&images||p==='reports'&&reports||p==='privacy'&&privacy);
- if(inStudy){$('next-reports').hidden=!images;$('next-anonymize').hidden=!reports;$('next-export').hidden=!privacy;}
- for(const a of document.querySelectorAll('#primary-navigation a')){const selected=a.getAttribute('href')==='#'+effective;a.setAttribute('aria-selected',String(selected));a.tabIndex=selected?0:-1;if(selected)a.setAttribute('aria-current','step');else a.removeAttribute('aria-current');}
+ const workbench=['studies','matching','review'].includes(effective),privacy=effective==='review';
+ for(const id of WORKSPACE_SCREENS){const node=$(id);if(node)node.hidden=id!==effective;}
+ $('research-workbench').hidden=!workbench;
+ $('studies').hidden=!workbench;$('matching').hidden=!workbench||privacy;$('review').hidden=true;
+ $('privacy-dock').hidden=!privacy;$('report-tabs').hidden=privacy;
+ $('image-empty').hidden=Boolean(selectedStudy);$('image-pane').hidden=!selectedStudy;
+ for(const n of document.querySelectorAll('[data-phase]'))n.hidden=!workbench||!selectedStudy||!n.dataset.phase.split(' ').some(p=>p==='privacy'?privacy:p==='images'?!privacy:p==='reports'?!privacy:false);
+ $('activity').hidden=!['overview','jobs'].includes(effective);$('workflow').hidden=true;
+ if(effective==='overview'){$('source-settings').hidden=false;$('jobs').hidden=false;}
+ $('next-reports').hidden=!selectedStudy||privacy;$('next-anonymize').hidden=!selectedStudy||privacy;$('next-export').hidden=!privacy;
+ if(workbench&&!privacy){if(!selectedStudy&&reportTab==='suggestions')activateReportTab('search');else if(selectedStudy&&reportTab==='search'&&effective==='studies')activateReportTab('suggestions');}
+ for(const a of document.querySelectorAll('#primary-navigation a')){const selected=a.getAttribute('href')==='#'+effective;a.setAttribute('aria-selected',String(selected));a.tabIndex=selected?0:-1;}
  updateExportSelection();window.scrollTo(0,0);
 }
 window.addEventListener('hashchange',showWorkspaceScreen);
@@ -122,7 +123,7 @@ function updateSelectedStudyBanner(study){
  }
  const accession=study.accession||'No accession';
  const modality=study.modality||'Unknown modality';
- const label='Selected: '+(study.name||study.patient||study.subject)+' | '+accession+' | Date: '+(study.date||'unknown')+' | '+modality+' | '+(study.count||0)+' images. Compare independent report records before association.';
+ const label='Selected: '+(displayPatient(study.name)||study.patient||study.subject)+' | '+accession+' | Date: '+(study.date||'unknown')+' | '+modality+' | '+(study.count||0)+' images. Compare independent report records before association.';
  banner.textContent=label;
 }
 async function openStudy(value, target='#studies') {
@@ -139,7 +140,7 @@ async function openStudy(value, target='#studies') {
  $('sql-patient-name').value=d.study.name||'';
  window.location.hash=target;
  showWorkspaceScreen();
- $('review').hidden=false;$('review-title').textContent=(d.study.accession||'No accession')+' | '+d.study.subject;$('review-state').textContent=labels[d.study.state]||d.study.state;
+ $('review').hidden=true;$('review-title').textContent=(d.study.accession||'No accession')+' | '+d.study.subject;$('review-state').textContent=labels[d.study.state]||d.study.state;
  if(d.study.last_error)notice(d.study.last_error,true);
  $('original').value=d.original_report;$('sanitized').value=d.study.sanitized||'';$('masks').value=d.study.redactions||'[]';$('review-note').value=d.study.review_note||'';$('images-reviewed').checked=false;$('report-reviewed').checked=false;
  $('report-choice').replaceChildren();d.candidates.forEach(addReport);if(d.study.report_id)$('report-choice').value=d.study.report_id;
@@ -423,12 +424,12 @@ for(const state of states){const o=el('option',labels[state]);o.value=state;$('f
 const chosenFolders=new Map();let folderRelative='.',folderOffset=0;
 function folderKey(root,relative){return root+':'+relative;}
 function selectFolder(root,relative,checked){const key=folderKey(root,relative);if(checked)chosenFolders.set(key,{root,relative});else chosenFolders.delete(key);renderSelected();}
-function renderSelected(){$('folder-selected').replaceChildren();for(const [key,folder] of chosenFolders){const line=document.createElement('p');line.textContent=$('folder-root').options[folder.root].textContent+' / '+folder.relative+' ';const remove=document.createElement('button');remove.textContent='Remove';remove.className='secondary';remove.onclick=()=>{chosenFolders.delete(key);renderSelected();browseFolders();};line.append(remove);$('folder-selected').append(line);}$('scan-selected').disabled=!chosenFolders.size;}
-async function browseFolders(append=false){try{const root=Number($('folder-root').value);const data=await api('/api/folders?root='+root+'&relative='+encodeURIComponent(folderRelative)+'&offset='+folderOffset);$('folder-location').textContent=folderRelative;if(!append){$('folder-list').replaceChildren();addFolder(root,folderRelative,'Include this folder and all subfolders',false);}for(const child of data.children)addFolder(root,child.relative,child.name,true);$('folder-more').hidden=folderOffset+data.children.length>=data.total;}catch(e){notice(e.message,true);}}
+function renderSelected(){$('folder-selected').replaceChildren();for(const [key,folder] of chosenFolders){const line=document.createElement('p');line.textContent=$('folder-root').options[folder.root].textContent+' / '+folder.relative+' ';const remove=document.createElement('button');remove.textContent='Remove';remove.className='secondary';remove.onclick=()=>{chosenFolders.delete(key);renderSelected();browseFolders();};line.append(remove);$('folder-selected').append(line);}$('scan-selected').disabled=!chosenFolders.size;$('add-report-folders').disabled=!chosenFolders.size||active();}
+async function browseFolders(append=false){try{const root=Number($('folder-root').value);const data=await api('/api/folders?root='+root+'&relative='+encodeURIComponent(folderRelative)+'&offset='+folderOffset);$('folder-location').textContent=folderRelative+(data.sql_files?.length?' · EMR exports found: '+data.sql_files.join(', ')+'. Select this folder and Add TXT / SQL.':'');if(!append){$('folder-list').replaceChildren();addFolder(root,folderRelative,'Include this folder and all subfolders',false);}for(const child of data.children)addFolder(root,child.relative,child.name,true);$('folder-more').hidden=folderOffset+data.children.length>=data.total;}catch(e){notice(e.message,true);}}
 function addFolder(root,relative,title,open){const row=document.createElement('div');row.className='toolbar';const label=document.createElement('label');label.className='check';const input=document.createElement('input');input.type='checkbox';input.checked=chosenFolders.has(folderKey(root,relative));input.onchange=()=>selectFolder(root,relative,input.checked);label.append(input,document.createTextNode(' '+title));row.append(label);if(open){const button=document.createElement('button');button.textContent='Open';button.className='secondary';button.onclick=()=>{folderRelative=relative;folderOffset=0;browseFolders();};row.append(button);}$('folder-list').append(row);}
 $('folder-open').onclick=()=>{folderRelative='.';folderOffset=0;browseFolders();};$('folder-root').onchange=$('folder-open').onclick;
 $('folder-up').onclick=()=>{folderRelative=folderRelative.includes('/')?folderRelative.slice(0,folderRelative.lastIndexOf('/')):'.';folderOffset=0;browseFolders();};
-$('folder-more').onclick=()=>{folderOffset+=200;browseFolders(true);};$('scan-selected').onclick=()=>queue('scan',{folders:[...chosenFolders.values()]});
+$('folder-more').onclick=()=>{folderOffset+=200;browseFolders(true);};$('add-report-folders').onclick=()=>queue('add_reports',{folders:[...chosenFolders.values()]});$('scan-selected').onclick=()=>queue('scan',{folders:[...chosenFolders.values()]});
 
 let historicalViewerUrl='';
 let historicalSelectionSerial=0;
@@ -603,4 +604,4 @@ function updateExportSelection(){
  $('export-selected-study').disabled=!s||!['approved','exported'].includes(s.state)||active();
 }
 
-setupResearchWorkspace();setupReportBrowser();setupWorkflowPanels();makeStudyReviewPrimary();showWorkspaceScreen();refresh();health();loadResearchQueue();setInterval(refresh,10000);setInterval(health,60000);
+setupResearchWorkspace();setupReportBrowser();setupWorkflowPanels();makeStudyReviewPrimary();setupWorkbench();showWorkspaceScreen();checkSQLReadiness();refresh();health();loadResearchQueue();setInterval(refresh,10000);setInterval(()=>{health();checkSQLReadiness();},60000);

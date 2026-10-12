@@ -33,7 +33,7 @@ async function loadSuggestions(){
      const result=await api('/api/report-browser/preview',{source:item.source,ref:item.ref});
      if(request!==reviewRequest||selected!==uid||serial!==browserSerial)return;
      if(result.source!==item.source||result.ref!==item.ref||result.hash!==item.hash)throw Error('Report changed since matching. Refresh the source index and suggestions.');
-     browserSelection=result;$('browser-text').value=result.text;
+     browserSelection=result;activateReportTab('preview');$('browser-text').value=result.text;
      $('browser-identity').textContent='REPORT RECORD: '+item.source.toUpperCase()+' | '+names.join(' | ')+'. '+suggestionLabels[item.bucket]+'. Association target is the DICOM study in the banner above.';
      $('browser-text').scrollIntoView({behavior:'smooth'});
     }finally{if(serial===browserSerial)$('browser-text').setAttribute('aria-busy','false');}
@@ -59,11 +59,11 @@ async function loadResearchQueue(){
 function updateResearchProgress(){
  if(!latest)return;
  const j=latest.jobs.find(x=>['queued','running'].includes(x.state));
- const rebuilding=j&&['scan','reindex','reindex_sql','suggest_reports','match'].includes(j.kind);
+ const rebuilding=j&&['scan','reindex','reindex_sql','suggest_reports','match','add_reports'].includes(j.kind);
  const ready=latest.settings.suggestions_ready==='1'&&!rebuilding;
  if(!ready&&lastSuggestionsRun!==null){lastSuggestionsRun=null;clearSuggestions();void loadResearchQueue();}
  $('matching-health').textContent=ready?'Suggestions ready · SQL: '+(latest.settings.suggestions_sql||'not checked')+' · TXT: '+(latest.settings.suggestions_txt||'not checked')+' · Last built: '+date(Number(latest.settings.suggestions_built)):'Suggestions not ready. Index sources or run Find reports for all studies.';
- if(ready&&lastSuggestionsRun!==latest.settings.suggestions_run){lastSuggestionsRun=latest.settings.suggestions_run;void loadResearchQueue();if(uid)void loadSuggestions();}
+ if(ready&&lastSuggestionsRun!==latest.settings.suggestions_run){lastSuggestionsRun=latest.settings.suggestions_run;void loadResearchQueue();void checkSQLReadiness();if(uid)void loadSuggestions();}
  $('suggest-all').disabled=active()||latest.settings.scan_complete!=='1';
  const last=latest.jobs[0],failed=last&&['failed','cancelled'].includes(last.state);
  const partial=ready&&((latest.settings.suggestions_sql||'').includes('unavailable')||(latest.settings.suggestions_txt||'').includes('reindex'));
