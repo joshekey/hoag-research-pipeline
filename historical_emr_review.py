@@ -88,9 +88,14 @@ def eligible_pairs(config):
     # Fail closed if the strong-lead population expanded unexpectedly.
     if len(matches)>20:
         raise ValueError("Historical candidate scope changed")
+    # Exclude documents nominated for more than one historical examination.
+    reuse_counts=defaultdict(int)
+    for report_ids in matches.values():
+        for report_id in set(report_ids):
+            reuse_counts[report_id]+=1
     verified=[]
     for uid,ids in sorted(matches.items()):
-        if len(ids)!=1:
+        if len(ids)!=1 or reuse_counts[ids[0]]!=1:
             continue
         rows=[row for row in dicoms
               if json.loads(row["metadata"]).get("StudyInstanceUID")==uid]
