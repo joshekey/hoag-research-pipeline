@@ -131,6 +131,8 @@ def build(config, job=None):
 def suggestions(config,uid):
     with database(config) as db:
         ready=db.execute("SELECT value FROM settings WHERE key='suggestions_ready'").fetchone()
+        rebuilding=db.execute("SELECT 1 FROM jobs WHERE state IN ('queued','running') AND kind IN ('scan','reindex','reindex_sql','suggest_reports','match') LIMIT 1").fetchone()
+        if rebuilding:ready=None
         txt=db.execute("SELECT value FROM settings WHERE key='suggestions_txt'").fetchone()
         sql=db.execute("SELECT value FROM settings WHERE key='suggestions_sql'").fetchone()
         rows=[dict(r) for r in db.execute('SELECT r.*,s.ranking FROM study_suggestions s JOIN match_reports r ON r.id=s.report JOIN studies d ON d.uid=s.uid WHERE s.uid=? AND s.fingerprint=d.fingerprint ORDER BY s.position',(uid,))] if ready and ready[0]=='1' else []

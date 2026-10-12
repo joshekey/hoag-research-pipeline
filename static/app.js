@@ -41,7 +41,7 @@ async function refresh() {
   const savedSQL=$('reindex-sql-file').value;$('reindex-sql-file').replaceChildren(el('option','Select SQL dump'));$('reindex-sql-file').firstChild.value='';
   for(const item of s.sql||[]){const o=el('option',item.path);o.value=item.id;$('reindex-sql-file').append(o);}$('reindex-sql-file').value=savedSQL;
   $('reindex-catalog').disabled=active();$('reindex-sql').disabled=active();
-  $('browser-associate').disabled=active()||!uid||!selectedStudy||selectedStudy.uid!==uid||!browserSelection||!$('browser-confirm').checked;
+  $('browser-associate').disabled=active()||associationBusy||!uid||!selectedStudy||selectedStudy.uid!==uid||!browserSelection||!$('browser-confirm').checked;
   await list();
   await finishPreparation();
  } catch(e){notice(e.message,true);$('workspace-operation').textContent='CONNECTION PROBLEM · '+e.message+' · Refresh or check dashboard service status.';}finally{refreshing=false;}

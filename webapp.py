@@ -265,6 +265,7 @@ def create_app(config):
             filtered+=" AND COALESCE(json_extract(s.ranking,'$.bucket'),'no suggestions')=?";params.append(bucket)
         with database(config) as db:
             ready=db.execute("SELECT value FROM settings WHERE key='suggestions_ready'").fetchone()
+            if db.execute("SELECT 1 FROM jobs WHERE state IN ('queued','running') AND kind IN ('scan','reindex','reindex_sql','suggest_reports','match') LIMIT 1").fetchone():ready=None
             total=db.execute('SELECT count(*)'+filtered,params).fetchone()[0]
             rows=[dict(r) for r in db.execute("SELECT d.uid,d.name,d.accession,d.date,d.modality,d.state,json_extract(s.ranking,'$.bucket') bucket"+filtered+" ORDER BY CASE json_extract(s.ranking,'$.bucket') WHEN 'strong' THEN 0 WHEN 'review' THEN 1 WHEN 'differences' THEN 2 ELSE 3 END,d.date DESC,d.uid LIMIT 100 OFFSET ?",params+[offset])]
             counts=[dict(r) for r in db.execute("SELECT COALESCE(json_extract(s.ranking,'$.bucket'),'no suggestions') bucket,count(*) count"+join+" GROUP BY bucket")]

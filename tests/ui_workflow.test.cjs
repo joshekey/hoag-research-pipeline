@@ -22,7 +22,7 @@ function fixture(prefs={}){
  w.fetch=async(url,options)=>{
   const route=new URL(String(url),'http://synthetic.invalid/');
   if(pending.has(route.pathname)){const wait=pending.get(route.pathname);pending.delete(route.pathname);await wait;}
-  if(route.pathname==='/api/status')return response({version:'1.2.0',counts:[{kind:'dicom',status:'ok',count:2},{kind:'report',status:'ok',count:2}],states:[{state:'candidate',count:2}],jobs:[],settings:{scan_complete:'1'},modalities:['CT'],sources:['/synthetic/images','/synthetic/reports'],output:'/synthetic/output',sql:[],exports:[],now:1});
+  if(route.pathname==='/api/status')return response({version:'1.2.0',counts:[{kind:'dicom',status:'ok',count:2},{kind:'report',status:'ok',count:2}],states:[{state:'candidate',count:2}],jobs:prefs.jobs||[],settings:{scan_complete:'1',...(prefs.settings||{})},modalities:['CT'],sources:['/synthetic/images','/synthetic/reports'],output:'/synthetic/output',sql:[],exports:[],now:1});
   if(route.pathname==='/api/research-queue')return response({ready:!!prefs.suggestions,rows:[],counts:prefs.suggestions?[{bucket:'strong',count:2}]:[],total:0});
   if(route.pathname==='/api/health')return response({shares:[]});
   if(route.pathname==='/api/studies')return response({rows:Object.values(studies),total:2});
@@ -109,4 +109,10 @@ test('ranked SQL suggestion displays reasons and opens an independent preview',a
 });
 test('search failures show a recovery message and release loading controls',async()=>{
  const f=fixture();try{await settle();f.w.location.hash='#matching';await settle();f.$('browser-query').value='FAIL';f.$('browser-search').click();await settle();assert.match(f.$('browser-status').textContent,/Search failed: Synthetic source failure/);assert.equal(f.$('browser-search').disabled,false);assert.equal(f.$('report-browser').getAttribute('aria-busy'),'false');}finally{f.dom.window.close();}
+});
+
+test('failed jobs and partial source coverage remain visibly distinct from ready',async()=>{
+ const job={id:9,state:'failed',kind:'reindex_sql',progress:100,message:'Synthetic SQL rebuild failed',created:1,finished:1};
+ const failed=fixture({jobs:[job]});try{await settle();assert.match(failed.$('workspace-operation').textContent,/ACTION NEEDED/);assert.match(failed.$('workspace-operation').textContent,/Synthetic SQL rebuild failed/);}finally{failed.dom.window.close();}
+ const partial=fixture({settings:{suggestions_ready:'1',suggestions_sql:'unavailable — TXT suggestions only',suggestions_txt:'2 of 2 TXT reports searchable',suggestions_run:'synthetic'}});try{await settle();assert.match(partial.$('workspace-operation').textContent,/PARTIAL COVERAGE/);assert.match(partial.$('matching-health').textContent,/unavailable/);}finally{partial.dom.window.close();}
 });

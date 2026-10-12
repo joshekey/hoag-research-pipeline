@@ -1,5 +1,5 @@
 /* Report identity is independent of study selection; requests never imply a match. */
-let browserSerial=0,browserSelection=null,browserOffset=0;
+let browserSerial=0,browserSelection=null,browserOffset=0,associationBusy=false;
 function clearBrowserPreview(){
  ++browserSerial;browserSelection=null;
  $('browser-text').value='';$('browser-identity').textContent='No report preview selected.';
@@ -36,13 +36,15 @@ function setupReportBrowser(){
  $('browser-source').onchange=$('browser-search').onclick;$('browser-sort').onchange=$('browser-search').onclick;
  $('browser-prev').onclick=safely(()=>{browserOffset=Math.max(0,browserOffset-100);return browseReports();});
  $('browser-next').onclick=safely(()=>{browserOffset+=100;return browseReports();});
- $('browser-confirm').onchange=()=>{$('browser-associate').disabled=!uid||!selectedStudy||selectedStudy.uid!==uid||!browserSelection||!$('browser-confirm').checked||active();};
+ $('browser-confirm').onchange=()=>{$('browser-associate').disabled=!uid||!selectedStudy||selectedStudy.uid!==uid||!browserSelection||!$('browser-confirm').checked||active()||associationBusy;};
  $('browser-associate').onclick=safely(async()=>{
   const study=uid,serial=browserSerial,generation=reviewRequest,selection=browserSelection;
   if(!study||!selectedStudy||selectedStudy.uid!==study||!selection)throw Error('Select a DICOM study and preview a report first');
-  await api('/api/study/'+encodeURIComponent(study)+'/report-association',{source:selection.source,ref:selection.ref,hash:selection.hash,confirm:$('browser-confirm').checked,note:$('browser-note').value});
+  if(associationBusy)return;associationBusy=true;$('browser-associate').disabled=true;notice('Associating the selected report. Please wait…');
+  try{await api('/api/study/'+encodeURIComponent(study)+'/report-association',{source:selection.source,ref:selection.ref,hash:selection.hash,confirm:$('browser-confirm').checked,note:$('browser-note').value});
   if(serial!==browserSerial||study!==uid||generation!==reviewRequest)return;
   await openStudy(study,'#review');void loadResearchQueue();notice('Report associated. Prepare and review de-identification before approval and export.');
+  }finally{associationBusy=false;$('browser-associate').disabled=!uid||!selectedStudy||selectedStudy.uid!==uid||!browserSelection||!$('browser-confirm').checked||active();}
  });
  $('reindex-catalog').onclick=safely(async()=>{if(!$('reindex-confirm').checked)throw Error('Confirm reindexing first');await queue('reindex');});
  $('reindex-sql').onclick=safely(async()=>{if(!$('reindex-confirm').checked)throw Error('Confirm reindexing first');const id=Number($('reindex-sql-file').value);if(!id)throw Error('Select an indexed SQL dump');await queue('reindex_sql',{file_id:id});});

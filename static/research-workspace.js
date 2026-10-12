@@ -58,19 +58,23 @@ async function loadResearchQueue(){
 }
 function updateResearchProgress(){
  if(!latest)return;
- const ready=latest.settings.suggestions_ready==='1';
+ const j=latest.jobs.find(x=>['queued','running'].includes(x.state));
+ const rebuilding=j&&['scan','reindex','reindex_sql','suggest_reports','match'].includes(j.kind);
+ const ready=latest.settings.suggestions_ready==='1'&&!rebuilding;
+ if(!ready&&lastSuggestionsRun!==null){lastSuggestionsRun=null;clearSuggestions();void loadResearchQueue();}
  $('matching-health').textContent=ready?'Suggestions ready · SQL: '+(latest.settings.suggestions_sql||'not checked')+' · TXT: '+(latest.settings.suggestions_txt||'not checked')+' · Last built: '+date(Number(latest.settings.suggestions_built)):'Suggestions not ready. Index sources or run Find reports for all studies.';
  if(ready&&lastSuggestionsRun!==latest.settings.suggestions_run){lastSuggestionsRun=latest.settings.suggestions_run;void loadResearchQueue();if(uid)void loadSuggestions();}
  $('suggest-all').disabled=active()||latest.settings.scan_complete!=='1';
- const j=latest.jobs.find(x=>['queued','running'].includes(x.state));
- $('workspace-operation').textContent=j?'WORKING · Job #'+j.id+' · '+(j.phase||j.kind)+' · '+j.message+' · '+j.progress.toLocaleString()+' processed · '+elapsed(latest.now-(j.started||j.created)):'READY · No job running. '+(ready?'Report suggestions are available.':'Report suggestions have not been built.');
+ const last=latest.jobs[0],failed=last&&['failed','cancelled'].includes(last.state);
+ const partial=ready&&((latest.settings.suggestions_sql||'').includes('unavailable')||(latest.settings.suggestions_txt||'').includes('reindex'));
+ $('workspace-operation').textContent=j?'WORKING · Job #'+j.id+' · '+(j.phase||j.kind)+' · '+j.message+' · '+j.progress.toLocaleString()+' processed · '+elapsed(latest.now-(j.started||j.created)):failed?'ACTION NEEDED · Job #'+last.id+' '+last.state+' · '+last.message+' · Open Processing jobs for retry/details.':partial?'PARTIAL COVERAGE · '+latest.settings.suggestions_sql+' · '+latest.settings.suggestions_txt+' · Check Sources.':'READY · No job running. '+(ready?'Report suggestions are available.':'Report suggestions have not been built.');
  $('workspace-operation').classList.toggle('working',Boolean(j));
 }
 function setupResearchWorkspace(){
  $('suggest-all').onclick=()=>queue('suggest_reports');
  $('suggestion-refresh').onclick=safely(loadSuggestions);
  $('research-queue-refresh').onclick=safely(loadResearchQueue);
- $('research-queue-filter').onchange=safely(()=>{queueOffset=0,lastSuggestionsRun=null;return loadResearchQueue();});
+ $('research-queue-filter').onchange=safely(()=>{queueOffset=0;return loadResearchQueue();});
  $('research-queue-prev').onclick=safely(()=>{queueOffset=Math.max(0,queueOffset-100);return loadResearchQueue();});
  $('research-queue-next').onclick=safely(()=>{queueOffset+=100;return loadResearchQueue();});
 }
