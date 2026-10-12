@@ -72,6 +72,32 @@ async function openOHIFStatus(study){
   if(uid===study)$('ohif-pilot-panel').hidden=!info.enabled;
  }catch(_error){$('ohif-pilot-panel').hidden=true;}
 }
+const WORKSPACE_SCREENS=new Set(['overview','studies','review','matching','packages','administration','source-settings','jobs','historical-emr-review','database']);
+function showWorkspaceScreen(){
+ const requested=(window.location.hash||'#studies').slice(1);
+ const screen=WORKSPACE_SCREENS.has(requested)?requested:'studies';
+ const effective=screen==='review'&&!uid?'studies':screen;
+ for(const id of WORKSPACE_SCREENS){
+   const element=$(id);
+   if(!element)continue;
+   element.hidden=id!==effective;
+ }
+ const activity=$('activity');
+ if(activity)activity.hidden=effective!=='overview';
+ const flow=$('workflow');
+ if(flow)flow.hidden=true;
+ const nav=document.querySelectorAll('#primary-navigation a, .quick-actions a');
+ for(const a of nav){
+   const target=a.getAttribute('href')?.slice(1);
+   const selected=target===effective;
+   if(selected)a.setAttribute('aria-current','page');
+   else a.removeAttribute('aria-current');
+ }
+ if(effective==='studies'&&screen==='review'&&window.location.hash!=='#studies')
+   window.history.replaceState(null,'','#studies');
+ window.scrollTo(0,0);
+}
+window.addEventListener('hashchange',showWorkspaceScreen);
 function makeStudyReviewPrimary(){
  const main=document.querySelector('main');
  const catalog=$('studies'), overview=$('overview'), review=$('review'), matching=$('matching');
@@ -101,6 +127,8 @@ async function openStudy(value) {
  $('review-report-match-status').textContent='Searching TXT and SQL reports for this selected study…';
  $('sql-candidate-list').replaceChildren();$('sql-candidate-original').value='';$('sql-candidate-summary').textContent='Select Find SQL candidates to inspect SQL-backed reports. No match is approved automatically.';
  updateSelectedStudyBanner(d.study);
+ window.location.hash='#review';
+ showWorkspaceScreen();
  $('review').hidden=false;$('review-title').textContent=(d.study.accession||'No accession')+' | '+d.study.subject;$('review-state').textContent=labels[d.study.state]||d.study.state;
  if(d.study.last_error)notice(d.study.last_error,true);
  $('original').value=d.original_report;$('sanitized').value=d.study.sanitized||'';$('masks').value=d.study.redactions||'[]';$('review-note').value=d.study.review_note||'';$('images-reviewed').checked=false;$('report-reviewed').checked=false;
@@ -404,4 +432,4 @@ async function loadHistoricalEMR(){
 }
 $('historical-emr-refresh').onclick=safely(loadHistoricalEMR);
 $('errors-refresh').onclick=safely(async()=>{const rows=await api('/api/source-errors');$('source-errors').replaceChildren();for(const row of rows)$('source-errors').append(el('p',row.path+' | '+row.kind+' | '+(JSON.parse(row.metadata).error||'Check source format, encoding and access')));if(!rows.length)$('source-errors').textContent='No source errors in the active inventory.';});
-makeStudyReviewPrimary();refresh();health();setInterval(refresh,10000);setInterval(health,60000);
+makeStudyReviewPrimary();showWorkspaceScreen();refresh();health();setInterval(refresh,10000);setInterval(health,60000);
