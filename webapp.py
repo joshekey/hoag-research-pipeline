@@ -253,6 +253,14 @@ def create_app(config):
     def sql_candidates(uid):
         if not sql_review_permitted():
             return jsonify(error="SQL matching is temporarily disabled for patient-identity verification"), 503
+        from strict_identity_match import normalize_name
+        requested_name = request.args.get("patient_name", "")
+        if not isinstance(requested_name, str) or len(requested_name) > 120:
+            raise ValueError("Invalid patient name search")
+        trusted = sql_gui_candidates.study_request(config, uid)
+        if (not normalize_name(requested_name) or
+                normalize_name(requested_name) != normalize_name(trusted["name"])):
+            raise ValueError("SQL patient name must agree with selected DICOM study")
         try:
             rows, count = sql_gui_candidates.candidates(config, uid)
         except LookupError:
