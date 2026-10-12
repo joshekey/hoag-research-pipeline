@@ -9,6 +9,7 @@ from unittest.mock import patch
 from werkzeug.security import generate_password_hash
 
 from webapp import create_app
+from historical_emr_review import checked_report_identity
 
 
 class HistoricalEMRReviewTests(unittest.TestCase):
@@ -28,6 +29,21 @@ class HistoricalEMRReviewTests(unittest.TestCase):
         self.client=self.app.test_client()
         self.auth={"Authorization":"Basic "+base64.b64encode(
             b"synthetic:safe-test-password").decode()}
+
+    def test_conflicting_displayed_patient_name_is_blocked(self):
+        report = ('DOE, JANE (MR # EMR111)\n'
+                  'Patient Name - OTHER, JOHN\n'
+                  'Date of Service: 10/01/2026\nMRI CERVICAL SPINE\n')
+        self.assertEqual(checked_report_identity(report,'DOE^JANE'),'conflict')
+
+    def test_consistent_names_still_require_manual_verification(self):
+        report = ('DOE, JANE (MR # EMR111)\n'
+                  'Patient Name - JANE DOE\n'
+                  'Date of Service: 10/01/2026\nMRI CERVICAL SPINE\n')
+        self.assertEqual(checked_report_identity(report,'DOE^JANE'),'consistent')
+
+    def test_unrecognized_identity_fails_closed(self):
+        self.assertEqual(checked_report_identity('MRI CERVICAL SPINE','DOE^JANE'),'unverified')
 
     def test_unauthenticated_listing_denied(self):
         self.assertEqual(self.client.get("/api/historical-emr/candidates").status_code,401)
