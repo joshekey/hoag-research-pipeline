@@ -125,9 +125,12 @@ def eligible_pairs(config):
 
 def listing(config):
     leads=eligible_pairs(config)
-    return {"count":len(leads),"review_only":True,"candidates":[
+    return {"count":len(leads),"review_only":True,"independent_from_active_catalog":True,"candidates":[
         {"token":lead["token"],"label":"Historical study "+lead["token"][:8].upper(),
          "instance_count":lead["instances"],
+         "study_ref":lead["token"][:8].upper(),
+         "modality":", ".join(sorted(lead["study"]["modalities"])),
+         "study_date":next(iter(lead["study"]["dates"])),
          "evidence":["exact patient name","exam / service date","modality"],
          "status":"Unconfirmed; not indexed in active review catalog"}
         for i,lead in enumerate(leads)]}
@@ -153,6 +156,9 @@ def preview(config, selected_token):
         "dicom_study_date":next(iter(study["dates"])),
         "dicom_modality":", ".join(sorted(study["modalities"])),
         "dicom_instances":lead["instances"],
+        "historical_study_ref":lead["token"][:8].upper(),
+        "emr_patient_name":next(iter(all_patient_names(narrative))),
+        "report_ref":"EMR report "+lead["token"][8:16].upper(),
         "evidence":["exact patient name","exam / service date","modality"],
         "patient_identity_status":"parsed_names_consistent_manual_review_required",
         "review_only":True,
