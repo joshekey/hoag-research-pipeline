@@ -270,10 +270,10 @@ function updateLegacyTXTAvailability(count){
  const available=select.options.length>0&&Boolean(select.value);
  prepare.disabled=!available||active();
  status.textContent=count>0
-  ? count+' indexed TXT report candidate(s) exist. Verify the selected report belongs to THIS study.'
+  ? count+' report option(s) available. Prepare the explicitly associated report after verifying the relationship.'
   : available
-    ? 'Manual TXT filename search results require independent identity and exam verification.'
-    : 'No indexed TXT report candidates for this study. Legacy preparation is unavailable unless a verified active TXT report is selected.';
+    ? 'Manual report selections require explicit association in Reports.'
+    : 'Associate a report in Reports before preparation.';
 }
 function addReport(r) {const o=el('option',(r.reason?r.reason+' - ':'Manual selection - ')+r.path);o.value=r.id;$('report-choice').append(o);}
 async function candidateText(){const selected=$('report-choice').value,study=uid,generation=reviewRequest;if(!selected){$('original').value='';return;}const report=await api('/api/report/'+selected);if(generation===reviewRequest&&selected===$('report-choice').value&&study===uid)$('original').value=report.text;}
@@ -387,7 +387,7 @@ $('sql-draft-prepare').onclick=safely(async()=>{
 });
 $('prepare').onclick=()=>{
  const reportID=Number($('report-choice').value);
- if(!uid||!Number.isSafeInteger(reportID)||reportID<=0){notice('Choose a valid active TXT report before preparation.',true);return;}
+ if(!uid||!Number.isSafeInteger(reportID)||reportID<=0){notice('Associate a valid report before preparation.',true);return;}
  void prepareSelectedReport(reportID);
 };
 $('view').onclick=viewImage;
@@ -517,7 +517,7 @@ function setupWorkflowPanels(){
  const reportPanel=document.querySelector('.review-grid > .panel:nth-child(2)');
  reportPanel.dataset.phase='privacy';
  const originalLabel=$('original').closest('label');
- const previewPanel=el('div',undefined,'panel');previewPanel.id='txt-original-panel';previewPanel.dataset.phase='reports';previewPanel.append(el('h3','Selected TXT report preview'),originalLabel);
+ const previewPanel=el('div',undefined,'panel');previewPanel.id='txt-original-panel';previewPanel.dataset.phase='privacy';previewPanel.append(el('h3','Original associated report'),originalLabel);
  $('txt-candidate-panel').after(previewPanel);
  for(const id of ['txt-candidate-panel','review-report-overview','sql-candidate-panel'])$(id).dataset.phase='reports';
  for(const id of ['legacy-txt-tools'])$(id).dataset.phase='privacy';

@@ -36,6 +36,7 @@ function fixture(){
    if(action.startsWith('/txt-report/'))return response({uid,id:Number(action.split('/').pop()),text:'SYNTHETIC REPORT '+uid,conflicts:[],preview_allowed:true,name:studies[uid].name,exam_date:'20200102',message:'Unverified synthetic candidate'});
    if(action==='/report-association'){const body=JSON.parse(options.body);studies[uid].report_id=Number(body.ref);studies[uid].state='needs_review';return response({associated:true,approved:false});}
   }
+  if(route.pathname.startsWith('/api/report/'))return response({text:'SYNTHETIC ORIGINAL ASSOCIATED REPORT'});
   if(route.pathname.startsWith('/api/image/'))return{ok:true,blob:async()=>({marker:route.pathname.split('/').pop()}),headers:{get:name=>({'X-Frames':'1','X-Columns':'8','X-Rows':'8'}[name])}};
   throw Error('Unexpected synthetic API '+route.pathname);
  };

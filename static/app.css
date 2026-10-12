@@ -208,4 +208,4 @@ tbody tr:hover{background:#173555}
 .legacy-txt-tools #report-search{min-width:280px}
 #legacy-txt-availability{font-size:13px;color:#b3cbe7}
 
-#txt-candidate-panel,#txt-original-panel,#review-report-overview,#sql-candidate-panel {display:none!important;}
+#txt-candidate-panel,#review-report-overview,#sql-candidate-panel {display:none!important;}
