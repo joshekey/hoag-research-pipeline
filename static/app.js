@@ -75,12 +75,30 @@ async function openOHIFStatus(study){
 async function openStudy(value) {
  const generation=++reviewRequest;uid=value;
  try{const d=await api('/api/study/'+encodeURIComponent(value));if(generation!==reviewRequest)return;
+ $('review-report-match-results').replaceChildren();
+ $('review-report-match-status').textContent='Searching TXT and SQL reports for this selected study…';
  $('sql-candidate-list').replaceChildren();$('sql-candidate-original').value='';$('sql-candidate-summary').textContent='Select Find SQL candidates to inspect SQL-backed reports. No match is approved automatically.';
  $('review').hidden=false;$('review-title').textContent=(d.study.accession||'No accession')+' | '+d.study.subject;$('review-state').textContent=labels[d.study.state]||d.study.state;
  if(d.study.last_error)notice(d.study.last_error,true);
  $('original').value=d.original_report;$('sanitized').value=d.study.sanitized||'';$('masks').value=d.study.redactions||'[]';$('review-note').value=d.study.review_note||'';$('images-reviewed').checked=false;$('report-reviewed').checked=false;
  $('report-choice').replaceChildren();d.candidates.forEach(addReport);if(d.study.report_id)$('report-choice').value=d.study.report_id;
  setupDicomSeries(d.images);
+ const txtCount=d.candidates.length;
+ const resultBox=$('review-report-match-results');
+ resultBox.replaceChildren();
+ resultBox.append(el('p',txtCount?txtCount+' indexed TXT report candidate(s). Check the Report candidates selector below.':'No indexed TXT report candidates for this study.'));
+ void (async()=>{
+   try{
+     const sqlTotal=await loadSQLCandidates();
+     if(generation!==reviewRequest||uid!==value)return;
+     resultBox.append(el('p',sqlTotal?sqlTotal+' SQL report candidate(s). See ranked SQL candidates below.':'No SQL report candidates found for this study.'));
+     $('review-report-match-status').textContent='Report lookup completed for the selected DICOM study. Nothing has been associated or approved.';
+   }catch(_error){
+     if(generation!==reviewRequest||uid!==value)return;
+     resultBox.append(el('p','SQL report lookup unavailable. Use Find SQL candidates to retry.'));
+     $('review-report-match-status').textContent='TXT candidates loaded; SQL lookup could not be completed.';
+   }
+ })();
  void openOHIFStatus(value);
  highlight();$('review').scrollIntoView({behavior:'smooth'});if(!d.original_report&&d.candidates.length)await candidateText();if(d.images.length)await viewImage();
  }catch(e){notice(e.message,true);}
@@ -99,7 +117,7 @@ async function loadSQLCandidates() {
  const study=uid;
  if(!study)return;
  const data=await api('/api/study/'+encodeURIComponent(study)+'/sql-candidates');
- if(study!==uid)return;
+ if(study!==uid)return 0;
  $('sql-draft-text').value='';
  $('sql-draft-status').textContent='';
  $('sql-candidate-original').value='';
@@ -108,6 +126,7 @@ async function loadSQLCandidates() {
  $('sql-candidate-list').replaceChildren();
  $('sql-candidate-summary').textContent=data.total+' name-matched candidates (showing '+data.candidates.length+'). Score is a heuristic, not a probability or approval.';
  await loadSQLDraft();
+ if(study!==uid)return 0;
  const labels={name:'Patient name',dob:'DOB',exam_date:'Examination date',exam_type:'Modality and anatomy'};
  data.candidates.forEach((item,i)=>{
    const line=el('div',undefined,'card');
@@ -147,6 +166,7 @@ async function loadSQLCandidates() {
    })));
    $('sql-candidate-list').append(line);
  });
+ return data.total;
 }
 function addReport(r) {const o=el('option',(r.reason?r.reason+' - ':'Manual selection - ')+r.path);o.value=r.id;$('report-choice').append(o);}
 async function candidateText() {const selected=$('report-choice').value;const study=uid;if(!selected){$('original').value='';return;}const report=await api('/api/report/'+selected);if(selected===$('report-choice').value&&study===uid)$('original').value=report.text;}
