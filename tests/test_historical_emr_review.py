@@ -54,6 +54,17 @@ class HistoricalEMRReviewTests(unittest.TestCase):
         self.assertIn("preview.historical_study_ref!==lead.study_ref",js)
         self.assertIn("frame.removeAttribute('src')",js)
 
+    def test_help_and_sql_patient_search_are_exposed(self):
+        root=Path(__file__).resolve().parents[1]
+        html=(root/"templates/index.html").read_text()
+        js=(root/"static/app.js").read_text()
+        self.assertIn('id="help"',html)
+        self.assertIn('id="reconcile-study-reports"',html)
+        self.assertIn('id="sql-patient-name"',html)
+        self.assertIn("'sql-patient-name').value=d.study.name||''",js)
+        self.assertIn("patient_name='+encodeURIComponent(confirmedName)",js)
+        self.assertIn("SQL lookup unavailable or failed",js)
+
     def test_blue_workspace_screens_and_selected_study_navigation(self):
         root=Path(__file__).resolve().parents[1]
         html=(root/"templates/index.html").read_text()
