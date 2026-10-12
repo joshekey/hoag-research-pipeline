@@ -57,7 +57,7 @@ def clean_id(value):
 # Capture all explicit patient-name statements, including EMR's "Patient Name -". 
 # Conflicting declarations invalidate name-based study/report discovery.
 PATIENT_NAME_LINES = re.compile(
-    r"(?im)^[ \\t]*(?:patient[ \\t]+name|name)[ \\t]*[:=\\-][ \\t]*([^\\r\\n]{2,120})"
+    r"(?im)^[ \t]*(?:patient[ \t]+name|name)[ \t]*[:=\-][ \t]*([^\r\n]{2,120})"
 )
 
 def all_patient_names(text):
@@ -65,7 +65,7 @@ def all_patient_names(text):
     names=set()
     for matched in PATIENT_NAME_LINES.finditer(header):
         value=matched.group(1).strip()
-        value=re.split(r"[ \\t]+(?:MR[ \\t]*#|DOB|DATE[ \\t]+OF[ \\t]+BIRTH)\\b",value,1,flags=re.I)[0].strip()
+        value=re.split(r"[ \t]+(?:MR[ \t]*#|DOB|DATE[ \t]+OF[ \t]+BIRTH)\b",value,1,flags=re.I)[0].strip()
         candidate=normalize_name(value)
         if candidate:
             names.add(candidate)
