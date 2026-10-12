@@ -18,6 +18,10 @@ echo "=== TESTS ==="
 echo "=== HEALTH PRECHECK ==="
 sudo systemctl is-active --quiet hoag-dashboard
 sudo test -d "$APP/ohif-assets"
+if sudo test -e "$GATE" || sudo test -L "$GATE"; then
+  echo "STOP: Historical review gate already exists. Inspect before installing."
+  exit 1
+fi
 sudo python3 - <<'PY'
 import json,sqlite3
 from pathlib import Path
