@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from werkzeug.security import generate_password_hash
 
@@ -48,6 +48,16 @@ class HistoricalEMRReviewTests(unittest.TestCase):
     def test_unauthenticated_listing_denied(self):
         self.assertEqual(self.client.get("/api/historical-emr/candidates").status_code,401)
         self.assertEqual(self.client.get("/api/historical-emr/candidate/"+"a"*32).status_code,401)
+
+    def test_unreadable_gate_fails_closed_without_http_500(self):
+        gate=MagicMock()
+        gate.is_symlink.side_effect=PermissionError("protected path")
+        with patch("historical_emr_review.GATE",gate):
+            from historical_emr_review import permitted
+            self.assertFalse(permitted())
+            response=self.client.get("/api/historical-emr/candidates",
+                                     headers=self.auth)
+        self.assertEqual(response.status_code,404)
 
     def test_no_root_gate_fails_closed(self):
         with patch("historical_emr_review.permitted",return_value=False):
