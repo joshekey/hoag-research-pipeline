@@ -65,7 +65,7 @@ def all_patient_names(text):
     names=set()
     for matched in PATIENT_NAME_LINES.finditer(header):
         value=matched.group(1).strip()
-        value=re.split(r"[ \t]+(?:MR[ \t]*#|DOB|DATE[ \t]+OF[ \t]+BIRTH)\b",value,1,flags=re.I)[0].strip()
+        value=re.split(r"[ \t]+(?:MRN|MR[ \t]*#|MEDICAL[ \t]+RECORD[ \t]+(?:NUMBER|#)|DOB|DATE[ \t]+OF[ \t]+BIRTH)\b",value,1,flags=re.I)[0].strip()
         candidate=normalize_name(value)
         if candidate:
             names.add(candidate)
