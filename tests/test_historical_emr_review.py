@@ -54,6 +54,21 @@ class HistoricalEMRReviewTests(unittest.TestCase):
         self.assertIn("preview.historical_study_ref!==lead.study_ref",js)
         self.assertIn("frame.removeAttribute('src')",js)
 
+    def test_blue_workspace_screens_and_selected_study_navigation(self):
+        root=Path(__file__).resolve().parents[1]
+        html=(root/"templates/index.html").read_text()
+        js=(root/"static/app.js").read_text()
+        css=(root/"static/app.css").read_text()
+        for screen in ("overview","studies","review","matching","packages","administration"):
+            self.assertIn('href="#'+screen+'"',html)
+            self.assertIn("'"+screen+"'",js)
+        self.assertIn("window.addEventListener('hashchange',showWorkspaceScreen)",js)
+        self.assertIn("window.location.hash='#review'",js)
+        self.assertIn("updateSelectedStudyBanner(d.study)",js)
+        self.assertIn("if(effective==='studies'&&screen==='review'",js)
+        self.assertIn("--accent:#65aaff",css)
+        self.assertIn("#review-report-overview",css)
+
     def test_review_automatically_looks_up_study_reports(self):
         root=Path(__file__).resolve().parents[1]
         js=(root/"static/app.js").read_text()
