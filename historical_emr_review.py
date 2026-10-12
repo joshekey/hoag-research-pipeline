@@ -140,6 +140,7 @@ def preview(config, selected_token):
         "evidence":["exact patient name","exam / service date","modality"],
         "patient_identity_status":"parsed_names_consistent_manual_review_required",
         "review_only":True,
-        "ohif_available":False,
-        "message":"Historical DICOM files remain inactive; image review and research export are not enabled."
+        "ohif_available":True,
+        "viewer_url":"/viewer?StudyInstanceUIDs="+lead["uid"],
+        "message":"Historical DICOM source is available for read-only OHIF review; no association or export approval."
     }
