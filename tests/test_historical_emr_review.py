@@ -54,6 +54,19 @@ class HistoricalEMRReviewTests(unittest.TestCase):
         self.assertIn("preview.historical_study_ref!==lead.study_ref",js)
         self.assertIn("frame.removeAttribute('src')",js)
 
+    def test_review_automatically_looks_up_study_reports(self):
+        root=Path(__file__).resolve().parents[1]
+        js=(root/"static/app.js").read_text()
+        html=(root/"templates/index.html").read_text()
+        start=js.index("async function openStudy(value)")
+        end=js.index("async function loadSQLDraft()",start)
+        review=js[start:end]
+        self.assertIn("const sqlTotal=await loadSQLCandidates()",review)
+        self.assertIn("const txtCount=d.candidates.length",review)
+        self.assertIn("generation!==reviewRequest||uid!==value",review)
+        self.assertIn('id="review-report-match-status"',html)
+        self.assertIn('id="review-report-match-results"',html)
+
     def test_report_reuse_across_studies_is_rejected(self):
         from historical_emr_review import unique_report_assignments
         self.assertEqual(unique_report_assignments({
