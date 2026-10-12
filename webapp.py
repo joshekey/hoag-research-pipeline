@@ -2,6 +2,7 @@
 import io
 import json
 import secrets
+import stat
 import shutil
 import time
 from functools import wraps
@@ -20,6 +21,22 @@ import sql_prepare_review
 from report_format import format_report
 from ohif_poc.clinical_dicomweb import create_blueprint as ohif_blueprint, viewer_authorized_uid, authorized_uid
 from store import audit, database, enqueue, initialize, token
+
+
+SQL_REVIEW_GATE = Path("/etc/hoag-research/sql-candidate-review.enabled")
+
+
+def sql_review_permitted():
+    """Fail closed until independently audited SQL identity matching is approved."""
+    try:
+        if SQL_REVIEW_GATE.is_symlink() or not SQL_REVIEW_GATE.is_file():
+            return False
+        mode = SQL_REVIEW_GATE.stat()
+        if mode.st_uid != 0 or mode.st_size > 32 or mode.st_mode & 0o022:
+            return False
+        return SQL_REVIEW_GATE.read_text().strip() == "AUTHORIZED"
+    except OSError:
+        return False
 
 
 def create_app(config):
@@ -234,6 +251,8 @@ def create_app(config):
 
     @app.get('/api/study/<uid>/sql-candidates')
     def sql_candidates(uid):
+        if not sql_review_permitted():
+            return jsonify(error="SQL matching is temporarily disabled for patient-identity verification"), 503
         try:
             rows, count = sql_gui_candidates.candidates(config, uid)
         except LookupError:
@@ -242,6 +261,8 @@ def create_app(config):
 
     @app.get('/api/study/<uid>/sql-candidate/<token>')
     def sql_candidate_text(uid, token):
+        if not sql_review_permitted():
+            return jsonify(error="SQL matching is temporarily disabled for patient-identity verification"), 503
         try:
             narrative = sql_gui_candidates.report_text(config, uid, token)
         except LookupError:
@@ -252,6 +273,8 @@ def create_app(config):
 
     @app.post('/api/study/<uid>/sql-association')
     def confirm_sql_association(uid):
+        if not sql_review_permitted():
+            return jsonify(error="SQL matching is temporarily disabled for patient-identity verification"), 503
         body = request.get_json(silent=True) or {}
         if body.get('confirm') is not True:
             raise ValueError('Explicit reviewer confirmation required')
@@ -261,6 +284,8 @@ def create_app(config):
 
     @app.post('/api/study/<uid>/sql-draft')
     def prepare_sql_draft(uid):
+        if not sql_review_permitted():
+            return jsonify(error="SQL matching is temporarily disabled for patient-identity verification"), 503
         body = request.get_json(silent=True) or {}
         if body.get('confirm') is not True:
             raise ValueError('Explicit SQL draft preparation confirmation required')
@@ -268,6 +293,8 @@ def create_app(config):
 
     @app.get('/api/study/<uid>/sql-draft')
     def read_sql_draft(uid):
+        if not sql_review_permitted():
+            return jsonify(error="SQL matching is temporarily disabled for patient-identity verification"), 503
         return jsonify(sql_prepare_review.read_draft(config, uid))
 
     @app.get('/api/study/<uid>')
