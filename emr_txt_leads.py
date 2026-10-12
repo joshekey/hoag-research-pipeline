@@ -62,6 +62,21 @@ def exam_terms(text):
         {name for name,pattern in ANATOMY if re.search(pattern,headings,re.I)}
     )
 
+def dicom_surname(name):
+    """DICOM PN family-name component only; not a report identifier."""
+    raw=str(name or "").split("=",1)[0].split("^",1)[0].strip()
+    # Comma-separated display names may also be family-name first.
+    raw=raw.split(",",1)[0]
+    parts=re.findall(r"[A-Z]+",raw.upper())
+    return tuple(parts) if parts and all(len(p)>=2 for p in parts) else ()
+
+def report_name_contains_surname(report_name, surname):
+    """A weak discovery-only overlap, never identity verification."""
+    if not surname or not report_name:
+        return False
+    tokens=set(re.findall(r"[A-Z]+",report_name.upper()))
+    return all(token in tokens for token in surname)
+
 def day_difference(a,b):
     try:
         return abs((datetime.strptime(a,"%Y%m%d")-
@@ -164,6 +179,7 @@ def scan(config):
             summary["studies_with_dicom_anatomy"]+=1
     leads={s["uid"]:[] for s in studies}
     name_overlap_studies=set()
+    surname_overlap_studies=set()
     name_and_date_studies=set()
     name_and_modality_studies=set()
     name_and_anatomy_studies=set()
@@ -190,6 +206,10 @@ def scan(config):
             dicom_mod,dicom_anat=study_clues[study["uid"]]
             # Report-stage diagnostics: identify exactly where candidate filtering stops.
             # No names, identifiers, crosswalks, or candidate lists leave this process.
+            surname=dicom_surname(study["name"])
+            if report_name_contains_surname(parsed["name"],surname):
+                summary["surname_overlap_pairs_exploratory_only"]+=1
+                surname_overlap_studies.add(study["uid"])
             if parsed["name"] and parsed["name"] == normalize_name(study["name"]):
                 summary["exact_name_overlap_pairs"]+=1
                 name_overlap_studies.add(study["uid"])
@@ -213,6 +233,7 @@ def scan(config):
             summary["anatomy_only_pairs"]+=sum(a["category"]=="anatomy_only_lead" for a in options)
         else:
             summary["studies_without_leads"]+=1
+    summary["studies_with_surname_overlap_exploratory_only"]=len(surname_overlap_studies)
     summary["studies_with_exact_name_overlap"]=len(name_overlap_studies)
     summary["studies_with_name_and_exact_dos"]=len(name_and_date_studies)
     summary["studies_with_name_and_modality"]=len(name_and_modality_studies)
