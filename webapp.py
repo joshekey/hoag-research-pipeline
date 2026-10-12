@@ -93,6 +93,24 @@ def create_app(config):
             return jsonify(enabled=False)
         return jsonify(enabled=(OHIF_ASSETS / 'index.html').is_file())
 
+    @app.get('/api/historical-emr/candidates')
+    def historical_emr_candidates():
+        import historical_emr_review
+        if not historical_emr_review.permitted():
+            abort(404)
+        return jsonify(historical_emr_review.listing(config))
+
+    @app.get('/api/historical-emr/candidate/<candidate_token>')
+    def historical_emr_candidate(candidate_token):
+        import historical_emr_review
+        if not historical_emr_review.permitted():
+            abort(404)
+        try:
+            result=historical_emr_review.preview(config,candidate_token)
+        except LookupError:
+            abort(404)
+        return jsonify(result)
+
     @app.get('/api/status')
     def status():
         with database(config) as db:
