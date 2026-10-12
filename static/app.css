@@ -19,3 +19,9 @@
 #ohif-host[hidden]{display:none}
 #ohif-iframe{display:block;box-sizing:border-box;width:100%;height:clamp(560px,78vh,1100px);min-height:560px;border:1px solid #405269;border-radius:8px;background:#050b15}
 @media(max-width:700px){#ohif-iframe{height:75vh;min-height:480px}}
+
+/* Historical OHIF study is separate from the normal active catalog viewer. */
+#historical-ohif-host{display:block;width:100%;min-width:0;margin:14px 0 22px}
+#historical-ohif-host[hidden]{display:none}
+#historical-ohif-iframe{display:block;width:100%;height:clamp(560px,78vh,1100px);min-height:560px;border:1px solid #405269;border-radius:8px;background:#050b15}
+@media(max-width:700px){#historical-ohif-iframe{height:75vh;min-height:480px}}
