@@ -7,7 +7,7 @@ const root=path.resolve(__dirname,'..');
 const pause=()=>new Promise(resolve=>setTimeout(resolve,0));
 async function settle(){for(let i=0;i<8;i++)await pause();}
 
-function fixture(){
+function fixture(prefs={}){
  const dom=new JSDOM(fs.readFileSync(path.join(root,'templates/index.html'),'utf8'),{url:'http://synthetic.invalid/',runScripts:'outside-only'});
  const w=dom.window;w.scrollTo=()=>{};w.HTMLElement.prototype.scrollIntoView=()=>{};
  w.URL.createObjectURL=blob=>'blob:synthetic-image-'+blob.marker;w.URL.revokeObjectURL=()=>{};
@@ -23,13 +23,15 @@ function fixture(){
   const route=new URL(String(url),'http://synthetic.invalid/');
   if(pending.has(route.pathname)){const wait=pending.get(route.pathname);pending.delete(route.pathname);await wait;}
   if(route.pathname==='/api/status')return response({version:'1.2.0',counts:[{kind:'dicom',status:'ok',count:2},{kind:'report',status:'ok',count:2}],states:[{state:'candidate',count:2}],jobs:[],settings:{scan_complete:'1'},modalities:['CT'],sources:['/synthetic/images','/synthetic/reports'],output:'/synthetic/output',sql:[],exports:[],now:1});
+  if(route.pathname==='/api/research-queue')return response({ready:!!prefs.suggestions,rows:[],counts:prefs.suggestions?[{bucket:'strong',count:2}]:[],total:0});
   if(route.pathname==='/api/health')return response({shares:[]});
   if(route.pathname==='/api/studies')return response({rows:Object.values(studies),total:2});
-  if(route.pathname==='/api/report-browser/search'){const body=JSON.parse(options.body);const id=body.q==='Example'?'1.2.4':'1.2.3';return response({groups:[{source:'txt',total:1,rows:[{source:'txt',ref:id==='1.2.3'?'31':'42',path:'Synthetic report '+id,name:studies[id].name}]}],errors:[]});}
-  if(route.pathname==='/api/report-browser/preview'){const body=JSON.parse(options.body);const id=body.ref==='31'?'1.2.3':'1.2.4';return response({source:body.source,ref:body.ref,hash:'synthetic-hash',text:'SYNTHETIC REPORT '+id,identity:{name:studies[id].name}});}
+  if(route.pathname==='/api/report-browser/search'){const body=JSON.parse(options.body);if(body.q==='FAIL')return response({error:'Synthetic source failure'},false);const id=body.q==='Example'?'1.2.4':'1.2.3';return response({groups:[{source:'txt',total:1,rows:[{source:'txt',ref:id==='1.2.3'?'31':'42',path:'Synthetic report '+id,name:studies[id].name}]}],errors:[]});}
+  if(route.pathname==='/api/report-browser/preview'){const body=JSON.parse(options.body);const id=body.ref==='31'||body.ref==='sql-a'?'1.2.3':'1.2.4';return response({source:body.source,ref:body.ref,hash:'synthetic-hash',text:'SYNTHETIC REPORT '+id,identity:{name:studies[id].name}});}
   const match=route.pathname.match(/^\/api\/study\/([0-9.]+)(.*)$/);
   if(match){const uid=match[1],action=match[2];
    if(!action)return response(detail(uid));
+   if(action==='/suggestions')return response(prefs.suggestions?{ready:true,txt_status:'2 of 2 TXT reports searchable',sql_status:'searched',rows:[{source:'sql',ref:'sql-a',path:'Synthetic SQL report',hash:'synthetic-hash',identity:{name:studies[uid].name,dob:'19700101',exam_date:'20200102'},bucket:'strong',matches:['Full patient name','Date of birth','Examination date'],differences:[],missing:[]}]}:{ready:false,rows:[],sql_status:'not checked'});
    if(action==='/ohif-status')return response({enabled:false});
    if(action==='/sql-candidates')return response({error:'SQL matching is temporarily disabled for patient-identity verification'},false);
    if(action==='/txt-candidates')return response({rows:[{id:uid==='1.2.3'?31:42,path:'/synthetic/'+uid+'.txt',name:studies[uid].name,reason:'Last name suggestion'}],total:1,surname:studies[uid].name.split('^')[0]});
@@ -40,7 +42,7 @@ function fixture(){
   if(route.pathname.startsWith('/api/image/'))return{ok:true,blob:async()=>({marker:route.pathname.split('/').pop()}),headers:{get:name=>({'X-Frames':'1','X-Columns':'8','X-Rows':'8'}[name])}};
   throw Error('Unexpected synthetic API '+route.pathname);
  };
- w.eval(fs.readFileSync(path.join(root,'static/report-browser.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/app.js'),'utf8'));
+ w.eval(fs.readFileSync(path.join(root,'static/research-workspace.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/report-browser.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/app.js'),'utf8'));
  return{dom,w,$,open(uid){const accession=studies[uid].accession;const row=[...$('study-rows').children].find(row=>row.textContent.includes(accession));return row.querySelector('button').onclick();},hold(route){let release;pending.set(route,new Promise(resolve=>{release=resolve;}));return release;}};
 }
 
@@ -100,4 +102,11 @@ test('unchecking a loading report cancels the pending selection',async()=>{
 
 test('Reports is accessible without selecting a DICOM study',async()=>{
  const f=fixture();try{await settle();f.w.location.hash='#matching';await settle();assert.equal(f.$('matching').hidden,false);f.$('browser-search').click();await settle();f.$('browser-rows').querySelector('button').click();await settle();assert.match(f.$('browser-text').value,/SYNTHETIC REPORT/);assert.equal(f.$('browser-associate').disabled,true);}finally{f.dom.window.close();}
+});
+
+test('ranked SQL suggestion displays reasons and opens an independent preview',async()=>{
+ const f=fixture({suggestions:true});try{await settle();await f.open('1.2.3');await settle();f.$('next-reports').click();await settle();assert.match(f.$('suggestion-status').textContent,/SQL coverage: searched/);assert.match(f.$('suggestion-list').textContent,/Full patient name/);assert.match(f.$('suggestion-list').textContent,/Strong evidence/);f.$('suggestion-list').querySelector('button').click();await settle();assert.match(f.$('browser-identity').textContent,/REPORT RECORD: SQL/);assert.equal(f.$('browser-text').value,'SYNTHETIC REPORT 1.2.3');assert.equal(f.$('browser-associate').disabled,true);}finally{f.dom.window.close();}
+});
+test('search failures show a recovery message and release loading controls',async()=>{
+ const f=fixture();try{await settle();f.w.location.hash='#matching';await settle();f.$('browser-query').value='FAIL';f.$('browser-search').click();await settle();assert.match(f.$('browser-status').textContent,/Search failed: Synthetic source failure/);assert.equal(f.$('browser-search').disabled,false);assert.equal(f.$('report-browser').getAttribute('aria-busy'),'false');}finally{f.dom.window.close();}
 });

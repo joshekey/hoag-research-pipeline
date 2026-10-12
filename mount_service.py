@@ -14,7 +14,7 @@ from store import audit, database, idle, load_config
 BASE = Path('/etc/hoag-research')
 FSTAB = Path('/etc/fstab')
 SOCKET = '/run/hoag-mount/control.sock'
-TARGETS = {'bulk': '/mnt/hoag-bulk', 'imaging': '/mnt/hoag-imaging', 'output': '/mnt/hoag-output'}
+TARGETS = {'bulk': '/mnt/hoag-bulk', 'imaging': '/mnt/hoag-imaging', 'output': '/mnt/hoag-output', 'database': '/mnt/hoag-database'}
 
 
 def validate(body):
@@ -70,7 +70,7 @@ def apply(body, config):
     import pwd
     data = validate(body)
     target = TARGETS[data['slot']]
-    expected = config['output_root'] if data['slot'] == 'output' else config['source_roots'][0 if data['slot'] == 'bulk' else 1]
+    expected = target if data['slot']=='database' else config['output_root'] if data['slot'] == 'output' else config['source_roots'][0 if data['slot'] == 'bulk' else 1]
     if expected != target or Path(target).resolve() != Path(target):
         raise ValueError('GUI mounting requires the standard mountpoint; ask IT to configure custom paths')
     marker = '# hoag-research:' + target
@@ -100,6 +100,7 @@ def apply(body, config):
         idle(db)
         if not writable:
             db.execute("UPDATE settings SET value='0' WHERE key='scan_complete'")
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('suggestions_ready','0')")
             db.execute("UPDATE studies SET state='needs_review',approved_hash=NULL,approved_fingerprint=NULL")
         # Commit invalidation even when a connection fails or rollback remount is unavailable.
         db.commit()
@@ -116,6 +117,10 @@ def apply(body, config):
                 FSTAB.write_text('\n'.join(line for line in lines if not line.endswith(marker)) + '\n' + entry + '\n')
                 command(['/usr/bin/systemctl', 'daemon-reload'])
                 command(['/usr/bin/mount', target])
+                if data['slot']=='database' and target not in config['source_roots']:
+                    from configure import save
+                    config=dict(config,source_roots=[*config['source_roots'],target])
+                    save(config)
             audit(db, 'admin', 'mount-connected', data['slot'])
         except Exception:
             with as_root():

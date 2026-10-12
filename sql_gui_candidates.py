@@ -33,7 +33,7 @@ def request_broker(body):
         if len(response) > 3 * 1024 * 1024 or not response.endswith(b"\n"):
             raise ValueError("SQL broker response exceeded limit")
         answer = json.loads(response)
-    except (OSError, ValueError):
+    except (OSError, ValueError, AttributeError):
         raise ValueError("SQL report broker unavailable or returned invalid response") from None
     if "error" in answer:
         raise ValueError(answer["error"])

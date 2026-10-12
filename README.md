@@ -1,9 +1,10 @@
 # HOAG Research Pipeline
 
-Release **1.3.0** adds unrestricted authenticated TXT/SQL report browsing,
-explicit manual association, SQL de-identification/export integration, and GUI
-reindex controls. The blue **Sources → Images → Reports → Anonymize & review →
-Export** workflow remains. See [report browsing and reindexing](docs/REPORT_BROWSER.md).
+Release **1.4.0** adds a researcher review queue, automatically ranked TXT/SQL
+report suggestions with explainable evidence, a third source-share mount slot,
+Patient/Date header extraction, and persistent work/coverage/recovery feedback.
+SQL is preferred when evidence is comparable; researchers choose and confirm the
+primary report. See [the researcher guide](docs/RESEARCHER_WORKFLOW.md).
 This standalone repository is the authoritative full application.
 The `dcmsys/research_pipeline` discovery pilot must not be installed over it: both use
 the same application directory and dashboard service. `pipeline.py` remains only for
@@ -35,8 +36,8 @@ line-ending changes in earlier clones are preserved:
 
 ```bash
 cd ~
-git clone https://github.com/joshekey/hoag-research-pipeline.git hoag-research-pipeline-v1.3.0
-cd hoag-research-pipeline-v1.3.0
+git clone https://github.com/joshekey/hoag-research-pipeline.git hoag-research-pipeline-v1.4.0
+cd hoag-research-pipeline-v1.4.0
 if sudo test -f /etc/hoag-research/config.json; then
   sudo bash research_build --no-configure
 else
@@ -70,7 +71,7 @@ sudo systemctl --no-pager --full status hoag-dashboard hoag-worker hoag-mount ho
 sudo -u hoag-indexer /opt/hoag-research/venv/bin/python /opt/hoag-research/manage.py doctor
 ```
 
-The version command should print `1.3.0`. If doctor reports unavailable mounts, connect
+The version command should print `1.4.0`. If doctor reports unavailable mounts, connect
 them in **Sources & mounts**, then rerun doctor and scan the selected folders. Refresh
 the GUI with Ctrl+Shift+R. No successful doctor check is implied by installation alone.
 

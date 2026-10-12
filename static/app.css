@@ -209,3 +209,5 @@ tbody tr:hover{background:#173555}
 #legacy-txt-availability{font-size:13px;color:#b3cbe7}
 
 #txt-candidate-panel,#review-report-overview,#sql-candidate-panel {display:none!important;}
+
+.operation-status{padding:14px 18px;margin:12px 0;border:1px solid var(--accent);border-radius:12px;background:#11243d;color:#d8eaff;position:sticky;top:0;z-index:5}.operation-status.working{border-left:6px solid #65aaff}.suggestion-card{padding:16px;margin:12px 0;border:1px solid #355276;border-radius:12px;background:#0d2039}.suggestion-card.strong{border-left:5px solid #57c79b}.suggestion-card.review{border-left:5px solid #e1bd65}.suggestion-card.differences{border-left:5px solid #ef929b}[aria-busy="true"]{opacity:.7;cursor:progress}
