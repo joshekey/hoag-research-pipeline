@@ -40,6 +40,10 @@ def initialize(config):
           kind TEXT NOT NULL, size INTEGER, mtime INTEGER, metadata TEXT NOT NULL,
           status TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, seen TEXT);
         CREATE INDEX IF NOT EXISTS files_kind ON files(kind,active,status);
+        CREATE VIRTUAL TABLE IF NOT EXISTS report_search USING fts5(text, path, tokenize='unicode61');
+        CREATE TABLE IF NOT EXISTS txt_associations (
+          uid TEXT PRIMARY KEY, report_id INTEGER NOT NULL, fingerprint TEXT NOT NULL,
+          report_hash TEXT NOT NULL, note TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS files_study ON files(json_extract(metadata,'$.StudyInstanceUID'))
           WHERE kind='dicom' AND active=1 AND status='ok';
         CREATE TABLE IF NOT EXISTS studies (

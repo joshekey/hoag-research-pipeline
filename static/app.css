@@ -3,3 +3,207 @@
 :root{--bg:#101721;--panel:#192330;--line:#324052;--accent:#72d8c3}main{padding-top:30px}aside{padding-top:28px}aside nav{gap:3px;margin-top:24px}aside nav a{font-size:13px}header{margin-bottom:22px}h1{font-size:36px}.workflow{display:flex;gap:10px;margin:0 0 22px;flex-wrap:wrap}.workflow a{background:var(--panel);border:1px solid var(--line);padding:10px 20px;font-size:13px}.workflow a.current{border-color:var(--accent);background:#1c403c;color:#c6fff1}#activity{border-left:4px solid var(--accent)}#activity h3{margin:5px 0}#activity p{margin:6px 0}summary{cursor:pointer;font-weight:600;padding:10px 0}details{margin-bottom:16px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.form-grid input,.form-grid select{display:block;width:100%;margin-top:6px}.filters{gap:12px}.filters label{font-size:12px;color:var(--muted)}.filters input,.filters select{display:block;margin-top:5px}.pager input{width:75px}#health{grid-template-columns:repeat(3,1fr)}#health p{font-size:12px;overflow-wrap:anywhere}.good{color:#8be1be}.warning{color:#ffc37b}.status{white-space:nowrap}#match-queues .card button{margin-top:14px}#image-viewport{overflow:auto;background:#000;max-height:650px;border-radius:8px}#image-stage{position:relative;width:100%;line-height:0}#image{display:block;width:100%;height:auto;max-height:none;object-fit:fill}#mask-canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair}#redaction-preview{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.6 ui-monospace,monospace;background:#0e1929;padding:16px;max-height:400px;overflow:auto}mark{background:#58492d;color:#ffe0a0;border-radius:3px}.approval-panel{position:sticky;bottom:10px;z-index:1;box-shadow:0 8px 30px #0006}.approval-panel .check{margin:5px 0}.approval-panel .toolbar{margin-bottom:0}.approval-panel p{font-size:12px;margin-bottom:0}.package-path{overflow-wrap:anywhere;min-width:230px}.schema-block{padding-bottom:20px;border-bottom:1px solid var(--line);margin-bottom:20px}.schema-block h3{overflow-wrap:anywhere}.schema-columns{display:flex;gap:8px;flex-wrap:wrap;padding:12px}.field{border:1px solid var(--line);padding:4px 9px;border-radius:5px;font:12px ui-monospace,monospace}.field.useful{border-color:#66bbaa;background:#1b4038;color:#a3efcf}#exports{overflow:auto}#job-rows button{white-space:nowrap}button:disabled{cursor:not-allowed}#folder-selected p{overflow-wrap:anywhere}@media(max-width:1100px){.approval-panel{position:static}.cards{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.form-grid,#health,.cards{grid-template-columns:1fr}.section-head{flex-wrap:wrap}.workflow a{padding:8px 12px}.review-grid{display:block}}
 
 .approval-panel{position:static}.approval-actions{position:sticky;bottom:10px;z-index:1;padding:12px 20px;box-shadow:0 8px 30px #0006}#review-note{width:100%;margin-top:6px}@media(max-width:700px){.approval-actions{position:static}}
+
+/* Left-to-right blue research workflow. All assets are served locally. */
+:root{--bg:#07152b;--panel:#11243d;--line:#294666;--accent:#65aaff;--text:#e8f2ff;--muted:#aac0dc;color-scheme:dark}
+body{background:radial-gradient(ellipse at top right,#133860 0,transparent 55%),var(--bg)}
+main{margin:0 auto;max-width:1680px;padding:24px 40px 60px}
+.top-brand{max-width:1680px;margin:auto;padding:22px 40px 0;font-size:22px;font-weight:800;color:#8ac0ff;letter-spacing:1px}
+.top-brand span{font-size:11px;margin-left:12px;letter-spacing:2px;color:var(--muted)}
+.workspace-header{margin-bottom:22px}.workspace-header h1{font-size:34px;margin:8px 0}.workspace-header p{margin:0}
+.step-tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:0 0 12px;border:1px solid var(--line);border-radius:14px;background:#0d203a;padding:8px;position:sticky;top:8px;z-index:4}
+.step-tabs a{text-align:center;padding:13px 8px;color:#a9c6e9;font-size:14px;border-radius:9px;border:1px solid transparent;white-space:nowrap}
+.step-tabs a[aria-selected=true]{background:#234f85;border-color:#68aafb;color:#fff;box-shadow:0 4px 12px #03112566}
+.step-tabs a:hover{background:#1b3b62;color:#fff}.utility-links{display:flex;gap:18px;justify-content:flex-end;font-size:12px;margin-bottom:16px}.utility-links a{color:#9ccaff}.utility-links span{color:var(--muted)}
+button{background:#2775d5;color:#fff;border:1px solid #4389df}button.secondary{background:#173859;border-color:#355c86}button:hover:not(:disabled){filter:brightness(1.14)}
+.panel,.card{background:linear-gradient(145deg,#122a47,#102139);border-color:#294766;box-shadow:0 5px 16px #020d1c33}
+.current-study-banner{background:#123354;border:1px solid #396491;border-left:4px solid #65aaff;margin-bottom:20px;padding:14px 18px;border-radius:10px;color:#e4f2ff}
+.stage-actions{justify-content:flex-end}.pill{background:#163e67;color:#bddfff;border-color:#40719f}
+.review-grid.only-images{grid-template-columns:1fr}.review-grid.only-images #image-viewport{max-height:580px}#txt-candidate-panel input:not([type=checkbox]){width:100%}#txt-note{width:100%;margin:8px 0 16px}
+#txt-candidate-rows tr:has(input:checked){background:#204d78}#txt-candidate-rows td:nth-child(2){overflow-wrap:anywhere;max-width:400px}input[type=checkbox]{accent-color:#65aaff}
+:focus-visible{outline:3px solid #a8dcff;outline-offset:3px}#notice{background:#183c68}#notice.error{background:#67333b}
+@media(max-width:900px){main{padding:18px}.top-brand{padding:18px 18px 0}.step-tabs{overflow-x:auto;display:flex}.step-tabs a{flex:0 0 auto}.workspace-header h1{font-size:28px}.review-grid{grid-template-columns:1fr}.current-study-banner{font-size:13px}}
+
+/* DICOM stack review controls: navigation does not constitute clinical approval. */
+.dicom-scroll-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}
+.dicom-scroll-controls input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
+#dicom-position-label{font-size:13px;font-variant-numeric:tabular-nums;color:var(--text)}
+#dicom-review-progress{font-size:12px}
+#dicom-series{max-width:min(470px,90vw)}
+#image-viewport:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media(max-width:700px){.dicom-scroll-controls button{padding:8px 10px}}
+
+/* OHIF must be sized in our served stylesheet: dashboard CSP blocks inline style. */
+#ohif-pilot-panel{width:100%;min-width:0}
+#ohif-host{display:block;width:100%;min-width:0;margin-top:16px}
+#ohif-host[hidden]{display:none}
+#ohif-iframe{display:block;box-sizing:border-box;width:100%;height:clamp(560px,78vh,1100px);min-height:560px;border:1px solid #405269;border-radius:8px;background:#050b15}
+@media(max-width:700px){#ohif-iframe{height:75vh;min-height:480px}}
+
+/* Historical OHIF study is separate from the normal active catalog viewer. */
+#historical-ohif-host{display:block;width:100%;min-width:0;margin:14px 0 22px}
+#historical-ohif-host[hidden]{display:none}
+#historical-ohif-iframe{display:block;width:100%;height:clamp(560px,78vh,1100px);min-height:560px;border:1px solid #405269;border-radius:8px;background:#050b15}
+@media(max-width:700px){#historical-ohif-iframe{height:75vh;min-height:480px}}
+
+/* Clinical review-first navigation: no dependency on external fonts/assets. */
+html{scroll-behavior:smooth}
+.skip-link{position:fixed;left:12px;top:-80px;background:#d2fff4;color:#09221d;padding:12px 18px;z-index:100;border-radius:8px}
+.skip-link:focus{top:12px}
+aside{width:260px;padding:26px 18px}
+aside .brand{font-size:27px}
+aside .brand span{font-size:10px}
+aside .nav-intro{margin:2px 10px 24px}
+aside nav{margin-top:10px;gap:4px}
+aside nav a{padding:11px 13px}
+aside nav a.nav-primary{background:#1b2d3d;border:1px solid #34485a;font-size:14px;font-weight:650}
+aside nav a.nav-primary:hover,aside nav a[aria-current="location"]{background:#21463f;border-color:var(--accent)}
+aside .nav-advanced{border:1px solid var(--line);border-radius:10px;margin-top:14px;padding:4px 8px}
+aside .nav-advanced summary{font-size:14px;padding:10px;list-style-position:inside;color:var(--muted)}
+aside .nav-advanced a{display:block;font-size:13px;padding:7px 12px}
+main{margin-left:260px;max-width:1720px;padding:28px 38px}
+.workspace-header{margin-bottom:16px}
+.workspace-header h1{font-size:clamp(25px,3vw,38px);letter-spacing:-.6px}
+.workspace-header p{max-width:660px}
+.quick-actions{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:14px}
+.quick-actions a{display:inline-flex;padding:9px 14px;background:#223449;border:1px solid #42576a;border-radius:8px;color:var(--text);text-decoration:none;font-size:13px;font-weight:650}
+.quick-actions a:hover{border-color:var(--accent)}
+.current-study-banner{position:sticky;top:0;z-index:4;background:#16352f;border:1px solid #3b897b;color:#e7fff9;padding:12px 16px;margin-bottom:14px;border-radius:10px;box-shadow:0 4px 14px #0005}
+#studies{scroll-margin-top:85px}
+#review{scroll-margin-top:88px}
+#studies .table-wrap{padding:10px 14px}
+#studies td:last-child button{white-space:nowrap}
+#review-report-overview{border-color:#4a8c80;background:#1a3437}
+#review-report-match-status{font-weight:650;color:#d9fff6}
+#review-report-match-results{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+#review-report-match-results p{border:1px solid #405a60;padding:12px;border-radius:9px;background:#132832;margin:0}
+#review .section-head{gap:12px;flex-wrap:wrap}
+#review .panel{padding:20px}
+#review textarea{max-height:480px}
+#matching,#historical-emr-review,#overview,#source-settings,#jobs,#database{scroll-margin-top:82px}
+@media(max-width:1000px){
+ aside{display:none}main{margin-left:0;padding:16px}
+ .quick-actions{overflow:auto;flex-wrap:nowrap}
+ .quick-actions a{white-space:nowrap}
+ .current-study-banner{top:0}
+}
+@media(max-width:600px){
+ .workspace-header{display:block}.workspace-header .pill{display:inline-block;margin-top:8px}
+ #review-report-match-results{grid-template-columns:1fr}
+ #studies .table-wrap{overflow-x:auto}
+}
+
+/* HOAG Research Blue Design System v1 — clinical review workspace */
+:root{
+ color-scheme:dark;
+ --bg:#07152b;
+ --panel:#11233c;
+ --line:#284568;
+ --text:#eef5ff;
+ --muted:#b0c2db;
+ --accent:#65aaff;
+ --blue-dark:#082143;
+ --blue-mid:#174b88;
+ --blue-bright:#84c4ff;
+ --focus:#a8dcff;
+}
+body{background:linear-gradient(180deg,#08172e 0%,#0b1d35 45%,#07152b 100%);color:var(--text)}
+aside{background:#07162e;border-right:1px solid #24466e}
+.brand,.brand span{color:#9ccfff}
+aside .nav-intro{color:#90aaca}
+aside nav a.nav-primary{
+ background:transparent;
+ border:1px solid transparent;
+ color:#d1e1f7;
+ transition:background .15s,border-color .15s;
+}
+aside nav a.nav-primary:hover,
+aside nav a.nav-primary[aria-current="page"]{
+ background:#15365f;
+ border-color:#397fca;
+ color:#fff;
+ box-shadow:inset 3px 0 #7bbcff;
+}
+aside .aside-note{color:#8faaca;line-height:1.5}
+.workspace-header small{color:#88beff}
+.workspace-header h1{color:#f0f6ff;letter-spacing:-.7px}
+.workspace-header p{color:#b5c9e6}
+.panel,.card{background:#11243d;border:1px solid #284568;box-shadow:0 5px 20px rgba(0,8,28,.12)}
+#activity{border-left:4px solid #529ffb}
+button{background:#2775d5;color:#fff;border:1px solid #3e8aeb;box-shadow:none}
+button:hover:not(:disabled){background:#3388ec}
+button.secondary,button#refresh{background:#17375d;color:#e8f3ff;border:1px solid #35618e}
+button.secondary:hover:not(:disabled){background:#244b78}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{
+ outline:3px solid var(--focus);outline-offset:2px
+}
+input,select,textarea{background:#081a31;border:1px solid #3c6088;color:#f1f7ff}
+input::placeholder,textarea::placeholder{color:#99b0ce}
+#notice{background:#15395c;color:#e8f5ff}
+#notice.error{background:#57262c;color:#ffe4e4;border:1px solid #c56f7a}
+.quick-actions a{background:#122e50;border-color:#335c86;color:#e6f1ff}
+.quick-actions a:hover,.quick-actions a[aria-current="page"]{background:#1c4b81;border-color:#76b6ff}
+.current-study-banner{
+ position:sticky;top:0;z-index:4;
+ background:#12375f;
+ border:1px solid #5198df;color:#e7f3ff;
+ box-shadow:0 6px 22px rgba(0,9,28,.34)
+}
+#review-report-overview{background:#112f54;border-color:#4689d4}
+#review-report-match-status{color:#d6ebff}
+#review-report-match-results p{background:#0a2443;border-color:#3d6894;color:#c8e0ff}
+.pill{border-color:#376dba;background:#143b70;color:#d6edff}
+.workflow a{border-color:#2c5380;background:#112947;color:#dceaff}
+.workflow a.current{background:#174e8b;border-color:#7ab8ff;color:#fff}
+#redaction-preview{background:#091c36}
+mark{background:#6c551e;color:#fff1bd}
+table th{color:#a8c5e8}
+table td{border-bottom-color:#284568}
+tbody tr:hover{background:#173555}
+.warning{color:#ffd089}.good{color:#a7ecd1}
+#dicom-review-progress{color:#a8c0df}
+#ohif-iframe,#historical-ohif-iframe{border:1px solid #346da4}
+.admin-links{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:20px}
+.admin-links a{display:block;text-decoration:none;font-weight:650;color:#e4f1ff;background:#183757;border:1px solid #38648f;border-radius:12px;padding:18px}
+.admin-links a:hover{background:#215080;border-color:#7dbdff}
+#administration .panel{max-width:950px}
+.skip-link{background:#b5ddff;color:#07152b}
+[hidden]{display:none!important}
+@media(max-width:800px){
+ .admin-links{grid-template-columns:1fr}
+ #current-study-banner{font-size:13px}
+}
+
+/* Integrated product assistance + reconciliation controls */
+.context-help-link{font-size:13px;color:#a9d5ff;text-decoration:underline;text-underline-offset:3px}
+.context-help-link:hover{color:#fff}
+#help{max-width:1170px}
+#help ol{padding-left:24px}
+#help ol li{padding:6px 0;color:#d5e4f6}
+#help a{color:#8bc5ff}
+#help h3{margin-top:0}
+.help-terms{display:grid;grid-template-columns:minmax(180px,240px) 1fr;gap:12px 24px}
+.help-terms dt{font-weight:700;color:#e6f3ff}
+.help-terms dd{margin:0;color:#b6cce7}
+#reconcile-study-reports{margin-bottom:10px}
+#reconcile-study-reports:disabled{opacity:.55}
+@media(max-width:700px){.help-terms{grid-template-columns:1fr;gap:4px}.help-terms dd{margin-bottom:14px}}
+
+/* SQL patient selection is always verified against selected DICOM study. */
+.sql-patient-search{border:1px solid #416da0;background:#0a274a;border-radius:12px;padding:14px 16px;margin:12px 0}
+.sql-patient-search label{font-weight:700;color:#deedff}
+#sql-patient-name{display:block;width:min(100%,560px);margin-top:6px}
+.sql-patient-search p{font-size:12px;margin:8px 0 0}
+
+/* Keep legacy TXT-only preparation available without crowding clinical review. */
+.review-study-intro{padding:18px 24px;margin-bottom:14px}
+.review-study-intro h3{margin:0 0 6px}
+.review-study-intro p{margin:0}
+.legacy-txt-tools{padding:14px 20px;background:#0c203d;border-color:#34577b}
+.legacy-txt-tools>summary{font-size:14px;color:#d3e8ff;cursor:pointer}
+.legacy-txt-tools>summary .muted{font-size:12px;font-weight:400}
+.legacy-txt-tools[open]{border-color:#5493d5}
+.legacy-txt-tools .toolbar{margin:10px 0;gap:10px}
+.legacy-txt-tools #report-choice{min-width:280px;max-width:100%}
+.legacy-txt-tools #report-search{min-width:280px}
+#legacy-txt-availability{font-size:13px;color:#b3cbe7}

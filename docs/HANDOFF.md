@@ -3,6 +3,18 @@
 **Updated:** 2026-10-12  
 **Status:** Engineering handoff / active development, **NOT approved as a clinically validated or production-ready research export workflow**.  
 **Repository:** `joshekey/hoag-research-pipeline`  
+
+**Integration update — 1.2.0:** The Codex integration consolidates the simpler release's
+scanner/update safeguards and the experimental UI modules in `codex/tabbed-blue-workflow`
+(PR #2), with a blue left-to-right Sources / Images / Reports / Anonymize & review / Export
+workflow. See `docs/TABBED_WORKFLOW.md` for current behavior and migration details. The
+branch split described below is historical context for this integration. The user confirmed
+the hospital currently shows the simpler GUI; no live version number was independently
+verified. SQL review remains on safety hold and SQL reports remain ineligible for export.
+New surname/scoped-TXT and DOM race tests pass; full integrated Linux CI passed before
+publication. Visual browser checking was stopped by the computer-use tool because it
+could not verify the current browser URL. No hospital system or clinical source data was
+accessed by Codex during this integration.
 **Instruction to Codex:** Read this entire document before changing code, selecting a base branch, running an installer, or touching a hospital system.
 
 ## 1. Branches: CRITICAL, do not blindly merge or deploy

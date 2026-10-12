@@ -1,6 +1,9 @@
 # HOAG Research Pipeline
 
-Release **1.1.0**. This standalone repository is the authoritative full application.
+Release **1.2.0** adds the blue, left-to-right **Sources → Images → Reports →
+Anonymize & review → Export** workflow. See [the workflow guide](docs/TABBED_WORKFLOW.md).
+The SQL identity safety hold remains enabled; SQL reports are not eligible for export.
+This standalone repository is the authoritative full application.
 The `dcmsys/research_pipeline` discovery pilot must not be installed over it: both use
 the same application directory and dashboard service. `pipeline.py` remains only for
 legacy catalog compatibility; the web application and worker use `manage.py`.
@@ -31,8 +34,8 @@ line-ending changes in earlier clones are preserved:
 
 ```bash
 cd ~
-git clone https://github.com/joshekey/hoag-research-pipeline.git hoag-research-pipeline-v1.1.0
-cd hoag-research-pipeline-v1.1.0
+git clone https://github.com/joshekey/hoag-research-pipeline.git hoag-research-pipeline-v1.2.0
+cd hoag-research-pipeline-v1.2.0
 if sudo test -f /etc/hoag-research/config.json; then
   sudo bash research_build --no-configure
 else
@@ -66,7 +69,7 @@ sudo systemctl --no-pager --full status hoag-dashboard hoag-worker hoag-mount ng
 sudo -u hoag-indexer /opt/hoag-research/venv/bin/python /opt/hoag-research/manage.py doctor
 ```
 
-The version command should print `1.1.0`. If doctor reports unavailable mounts, connect
+The version command should print `1.2.0`. If doctor reports unavailable mounts, connect
 them in **Sources & mounts**, then rerun doctor and scan the selected folders. Refresh
 the GUI with Ctrl+Shift+R. No successful doctor check is implied by installation alone.
 

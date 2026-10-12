@@ -5,6 +5,10 @@ umask 027
 source /etc/os-release
 [[ "$ID" == rhel && "$VERSION_ID" == 10* ]] || { echo 'This installer targets RHEL 10.'; exit 1; }
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if [[ -e /etc/hoag-research/sql-candidate-review.enabled || -L /etc/hoag-research/sql-candidate-review.enabled ]]; then
+  echo 'SQL candidate review is enabled. This update requires the documented SQL identity safety hold; contact the administrator before installing.'
+  exit 1
+fi
 [[ $# -le 1 && ( $# -eq 0 || "$1" == --no-configure ) ]] || { echo 'Usage: sudo bash research_build [--no-configure]'; exit 1; }
 exec 9>/run/hoag-research-install.lock
 flock -n 9 || { echo 'Another installation is running'; exit 1; }
@@ -36,7 +40,7 @@ runuser -u hoag-indexer -- "$RUNTIME/bin/python" -c 'import flask, pydicom, dico
 # Recheck after downloads and close the queue/installer race before copying files.
 python3 "$ROOT/install_support.py" reserve
 ACTIVE=()
-for unit in hoag-dashboard.service hoag-worker.service hoag-mount.service; do
+for unit in hoag-dashboard.service hoag-worker.service hoag-mount.service hoag-sql.service; do
   if systemctl is-active --quiet "$unit"; then ACTIVE+=("$unit"); fi
 done
 resume_previous() {
@@ -45,8 +49,8 @@ resume_previous() {
   echo "Installation failed. Preserve the printed backup and inspect service status before retrying."
 }
 trap resume_previous ERR
-systemctl stop hoag-dashboard.service hoag-worker.service hoag-mount.service 2>/dev/null || true
-for unit in hoag-dashboard.service hoag-worker.service hoag-mount.service; do
+systemctl stop hoag-dashboard.service hoag-worker.service hoag-mount.service hoag-sql.service 2>/dev/null || true
+for unit in hoag-dashboard.service hoag-worker.service hoag-mount.service hoag-sql.service; do
   if systemctl is-active --quiet "$unit"; then
     echo "Could not stop $unit; refusing to replace application files."
     resume_previous
@@ -61,13 +65,18 @@ if [[ -e /opt/hoag-research/venv || -L /opt/hoag-research/venv ]]; then
   mv /opt/hoag-research/venv "/opt/hoag-research/venv.previous.$(date +%s)-$$"
 fi
 ln -s "$RUNTIME" /opt/hoag-research/venv
-for file in manage.py store.py engine.py worker.py webapp.py configure.py sql_schema.py mount_service.py install_support.py pipeline.py config.example.json VERSION; do
-  install -m 0644 "$ROOT/$file" "/opt/hoag-research/$file"
+for file in "$ROOT"/*.py "$ROOT/config.example.json" "$ROOT/VERSION"; do
+  install -m 0644 "$file" "/opt/hoag-research/$(basename "$file")"
+done
+install -d -m 0755 /opt/hoag-research/ohif_poc
+for file in "$ROOT"/ohif_poc/*.py; do
+  install -m 0644 "$file" "/opt/hoag-research/ohif_poc/$(basename "$file")"
 done
 install -m 0644 "$ROOT/templates/index.html" /opt/hoag-research/templates/index.html
 install -m 0644 "$ROOT/static/app.js" "$ROOT/static/app.css" /opt/hoag-research/static/
 install -m 0755 "$ROOT/scripts/configure" /opt/hoag-research/configure
 install -m 0644 "$ROOT/hoag-dashboard.service" "$ROOT/hoag-worker.service" "$ROOT/hoag-mount.service" /etc/systemd/system/
+install -m 0644 "$ROOT/hoag-sql.service" /etc/systemd/system/
 systemctl daemon-reload
 if [[ ! -f /etc/hoag-research/config.json ]]; then
   /opt/hoag-research/venv/bin/python /opt/hoag-research/configure.py --initialize
@@ -93,6 +102,9 @@ nginx -t
 python3 "$ROOT/install_support.py" release
 systemctl enable --now hoag-dashboard.service hoag-worker.service hoag-mount.service nginx.service
 systemctl reload nginx.service
+for unit in "${ACTIVE[@]}"; do
+  if [[ "$unit" == hoag-sql.service ]]; then systemctl start "$unit"; fi
+done
 trap - ERR
 if systemctl is-active --quiet firewalld; then
   firewall-cmd --permanent --add-port=8443/tcp

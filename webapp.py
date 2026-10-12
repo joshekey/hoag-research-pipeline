@@ -2,6 +2,7 @@
 import io
 import json
 import secrets
+import stat
 import shutil
 import time
 from functools import wraps
@@ -9,12 +10,33 @@ from pathlib import Path
 
 import numpy as np
 import pydicom
-from flask import Flask, Response, abort, jsonify, render_template, request, session
+from flask import Flask, Response, abort, jsonify, render_template, request, session, send_from_directory
 from PIL import Image
 from werkzeug.security import check_password_hash
 
 import engine
+import sql_gui_candidates
+import sql_association
+import sql_prepare_review
+from report_format import format_report
+from ohif_poc.clinical_dicomweb import create_blueprint as ohif_blueprint, viewer_authorized_uid, authorized_uid
 from store import audit, database, enqueue, initialize, token
+
+
+SQL_REVIEW_GATE = Path("/etc/hoag-research/sql-candidate-review.enabled")
+
+
+def sql_review_permitted():
+    """Fail closed until independently audited SQL identity matching is approved."""
+    try:
+        if SQL_REVIEW_GATE.is_symlink() or not SQL_REVIEW_GATE.is_file():
+            return False
+        mode = SQL_REVIEW_GATE.stat()
+        if mode.st_uid != 0 or mode.st_size > 32 or mode.st_mode & 0o022:
+            return False
+        return SQL_REVIEW_GATE.read_text().strip() == "AUTHORIZED"
+    except OSError:
+        return False
 
 
 def create_app(config):
@@ -23,6 +45,8 @@ def create_app(config):
     app.secret_key = config['secret_key']
     app.config.update(MAX_CONTENT_LENGTH=12 * 1024 * 1024, SESSION_COOKIE_HTTPONLY=True,
                       SESSION_COOKIE_SAMESITE='Strict', SESSION_COOKIE_SECURE=config.get('secure_cookies', True))
+
+    app.register_blueprint(ohif_blueprint(config))
 
     @app.before_request
     def protect():
@@ -36,8 +60,25 @@ def create_app(config):
     def headers(response):
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-Frame-Options'] = 'DENY'
-        response.headers['Content-Security-Policy'] = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' blob:; frame-ancestors 'none'"
+        if request.path == '/viewer' or request.path == '/app-config.js' or request.path.endswith(('.js', '.css', '.wasm', '.svg', '.woff2')):
+            response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+            # The bundled OHIF libjpeg-turbo Emscripten worker calls new Function()
+            # while decoding JPEG Lossless. Keep this relaxation restricted to
+            # OHIF viewer/assets, never the main HOAG dashboard HTML.
+            # Hashes allow only the two known inline OHIF bootstrap scripts.
+            response.headers['Content-Security-Policy'] = (
+                "default-src 'self' blob: data:; "
+                "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' "
+                "'sha256-RUJKPsAHcLA3YS8dWuPEiqEPTlkfTEHKow0zXWj7MBE=' "
+                "'sha256-YGQALmFLH0ots68+CN8MF4DamHt77VywRO0d1cRTm3Y='; "
+                "worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' blob: data:; font-src 'self' data:; "
+                "connect-src 'self'; frame-ancestors 'self'"
+            )
+        else:
+            response.headers['X-Frame-Options'] = 'DENY'
+            response.headers['Content-Security-Policy'] = ("default-src 'self'; style-src 'self'; script-src 'self'; "
+                "img-src 'self' blob:; frame-src 'self'; frame-ancestors 'none'")
         return response
 
     @app.errorhandler(ValueError)
@@ -52,6 +93,50 @@ def create_app(config):
     def index():
         session.setdefault('csrf', secrets.token_urlsafe(32))
         return render_template('index.html', csrf=session['csrf'])
+
+    OHIF_ASSETS = Path('/opt/hoag-research/ohif-assets')
+
+    @app.get('/viewer')
+    def ohif_viewer():
+        viewer_authorized_uid(config, request.args.get('StudyInstanceUIDs', ''))
+        if not (OHIF_ASSETS / 'index.html').is_file():
+            abort(404)
+        return send_from_directory(OHIF_ASSETS, 'index.html')
+
+    @app.get('/<path:ohif_asset>')
+    def ohif_static(ohif_asset):
+        if not ohif_asset.endswith(('.js', '.css', '.wasm', '.woff', '.woff2',
+                                     '.svg', '.png', '.ico', '.json', '.map')):
+            abort(404)
+        if not OHIF_ASSETS.is_dir():
+            abort(404)
+        return send_from_directory(OHIF_ASSETS, ohif_asset)
+
+    @app.get('/api/study/<uid>/ohif-status')
+    def ohif_status(uid):
+        try:
+            authorized_uid(config, uid)
+        except Exception:
+            return jsonify(enabled=False)
+        return jsonify(enabled=(OHIF_ASSETS / 'index.html').is_file())
+
+    @app.get('/api/historical-emr/candidates')
+    def historical_emr_candidates():
+        import historical_emr_review
+        if not historical_emr_review.permitted():
+            abort(404)
+        return jsonify(historical_emr_review.listing(config))
+
+    @app.get('/api/historical-emr/candidate/<candidate_token>')
+    def historical_emr_candidate(candidate_token):
+        import historical_emr_review
+        if not historical_emr_review.permitted():
+            abort(404)
+        try:
+            result=historical_emr_review.preview(config,candidate_token)
+        except LookupError:
+            abort(404)
+        return jsonify(result)
 
     @app.get('/api/status')
     def status():
@@ -164,6 +249,78 @@ def create_app(config):
         with database(config) as db:
             rows = [dict(r) for r in db.execute("SELECT id,path FROM files WHERE kind='report' AND active=1 AND status='ok' AND path LIKE ? LIMIT 100", (q,))]
         return jsonify(rows)
+
+    @app.get('/api/study/<uid>/txt-candidates')
+    def txt_candidates(uid):
+        from txt_review import candidates
+        return jsonify(candidates(config, uid, request.args.get('q'), request.args.get('sort','reason'), int(request.args.get('offset',0))))
+
+    @app.get('/api/study/<uid>/txt-report/<int:report_id>')
+    def txt_preview(uid,report_id):
+        from txt_review import preview
+        return jsonify(preview(config,uid,report_id))
+
+    @app.post('/api/study/<uid>/txt-association')
+    def txt_association(uid):
+        from txt_review import associate
+        body = request.get_json(silent=True) or {}
+        return jsonify(associate(config,uid,int(body.get('report_id',0)),body.get('note',''),body.get('confirm'),config['username']))
+
+    @app.get('/api/study/<uid>/sql-candidates')
+    def sql_candidates(uid):
+        if not sql_review_permitted():
+            return jsonify(error="SQL matching is temporarily disabled for patient-identity verification"), 503
+        from strict_identity_match import normalize_name
+        requested_name = request.args.get("patient_name", "")
+        if not isinstance(requested_name, str) or len(requested_name) > 120:
+            raise ValueError("Invalid patient name search")
+        trusted = sql_gui_candidates.study_request(config, uid)
+        if (not normalize_name(requested_name) or
+                normalize_name(requested_name) != normalize_name(trusted["name"])):
+            raise ValueError("SQL patient name must agree with selected DICOM study")
+        try:
+            rows, count = sql_gui_candidates.candidates(config, uid)
+        except LookupError:
+            abort(404)
+        return jsonify(candidates=rows, total=count, read_only=True)
+
+    @app.get('/api/study/<uid>/sql-candidate/<token>')
+    def sql_candidate_text(uid, token):
+        if not sql_review_permitted():
+            return jsonify(error="SQL matching is temporarily disabled for patient-identity verification"), 503
+        try:
+            narrative = sql_gui_candidates.report_text(config, uid, token)
+        except LookupError:
+            abort(404)
+        readable, format_status = format_report(narrative)
+        return jsonify(text=narrative, formatted=readable,
+                       format_status=format_status, read_only=True)
+
+    @app.post('/api/study/<uid>/sql-association')
+    def confirm_sql_association(uid):
+        if not sql_review_permitted():
+            return jsonify(error="SQL matching is temporarily disabled for patient-identity verification"), 503
+        body = request.get_json(silent=True) or {}
+        if body.get('confirm') is not True:
+            raise ValueError('Explicit reviewer confirmation required')
+        return jsonify(sql_association.confirm(config, uid, body.get('token', ''),
+                         body.get('note', ''), body.get('date_verified'),
+                         body.get('conflicts_acknowledged'), config['username']))
+
+    @app.post('/api/study/<uid>/sql-draft')
+    def prepare_sql_draft(uid):
+        if not sql_review_permitted():
+            return jsonify(error="SQL matching is temporarily disabled for patient-identity verification"), 503
+        body = request.get_json(silent=True) or {}
+        if body.get('confirm') is not True:
+            raise ValueError('Explicit SQL draft preparation confirmation required')
+        return jsonify(sql_prepare_review.prepare_draft(config, uid, config['username']))
+
+    @app.get('/api/study/<uid>/sql-draft')
+    def read_sql_draft(uid):
+        if not sql_review_permitted():
+            return jsonify(error="SQL matching is temporarily disabled for patient-identity verification"), 503
+        return jsonify(sql_prepare_review.read_draft(config, uid))
 
     @app.get('/api/study/<uid>')
     def study_detail(uid):

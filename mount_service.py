@@ -98,8 +98,9 @@ def apply(body, config):
     with catalog(config, account) as db:
         db.execute('BEGIN IMMEDIATE')
         idle(db)
-        db.execute("UPDATE settings SET value='0' WHERE key='scan_complete'")
-        db.execute("UPDATE studies SET state='needs_review',approved_hash=NULL,approved_fingerprint=NULL")
+        if not writable:
+            db.execute("UPDATE settings SET value='0' WHERE key='scan_complete'")
+            db.execute("UPDATE studies SET state='needs_review',approved_hash=NULL,approved_fingerprint=NULL")
         # Commit invalidation even when a connection fails or rollback remount is unavailable.
         db.commit()
         db.execute('BEGIN IMMEDIATE')
