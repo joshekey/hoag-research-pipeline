@@ -166,8 +166,15 @@ async function reconcileStudyReports(detail, study, generation){
     : 'TXT and SQL searches completed. No candidates found in these two sources.';
  }catch(_error){
    if(!isCurrent())return;
-   box.append(el('p','SQL lookup unavailable or failed; SQL matching status is UNKNOWN, not zero.'));
-   status.textContent='TXT search completed; SQL lookup could not be verified. Retry reconciliation.';
+   const held=String(_error?.message||'').includes('temporarily disabled');
+   const message=held
+    ? 'SQL candidate review is temporarily disabled while we verify patient identity. No SQL report is shown.'
+    : 'SQL lookup unavailable or failed; SQL matching status is UNKNOWN, not zero.';
+   box.append(el('p',message));
+   $('sql-candidate-summary').textContent=message;
+   status.textContent=held
+    ? 'TXT search completed. SQL candidate results are on safety hold.'
+    : 'TXT search completed; SQL lookup could not be verified. Retry reconciliation.';
  }finally{
    if(isCurrent())refreshButton.disabled=false;
  }
