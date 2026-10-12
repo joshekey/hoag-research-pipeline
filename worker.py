@@ -20,6 +20,22 @@ def process_one(config):
         payload = json.loads(job['payload'])
         if job['kind'] == 'scan':
             engine.scan(config, job['id'], payload.get('folders'))
+        elif job['kind'] == 'reindex':
+            with database(config) as db:
+                saved=db.execute("SELECT value FROM settings WHERE key='scan_folders'").fetchone()
+            engine.scan(config,job['id'],json.loads(saved[0]) if saved else None,force=True)
+        elif job['kind'] == 'reindex_sql':
+            from sql_gui_candidates import request_broker
+            request_broker({'action':'reindex_start','job_id':job['id'],'file_id':int(payload['file_id'])})
+            while True:
+                result=request_broker({'action':'reindex_status','job_id':job['id']})
+                if result['state']=='completed':
+                    checkpoint(config,job['id']);break
+                if result['state']=='failed': raise ValueError(result['error'])
+                from store import progress
+                progress(config,job['id'],result.get('progress',0),'Reading SQL dump; old index remains available','SQL reindex')
+                # Broker callback observes cancellation before publishing the index.
+                time.sleep(1)
         elif job['kind'] == 'match':
             engine.match(config, job['id'])
         elif job['kind'] == 'validate_export':

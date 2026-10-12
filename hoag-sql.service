@@ -40,9 +40,10 @@ RestrictSUIDSGID=yes
 RestrictAddressFamilies=AF_UNIX
 RuntimeDirectory=hoag-sql
 RuntimeDirectoryMode=0750
-MemoryMax=256M
-ReadOnlyPaths=/var/lib/hoag-research/sql-private /etc/hoag-research
-ReadWritePaths=/run/hoag-sql
+MemoryMax=1G
+ReadOnlyPaths=/etc/hoag-research
+ReadOnlyPaths=/var/lib/hoag-research
+ReadWritePaths=/run/hoag-sql /var/lib/hoag-research/sql-private
 
 [Install]
 WantedBy=multi-user.target

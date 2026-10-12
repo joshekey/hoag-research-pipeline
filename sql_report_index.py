@@ -11,6 +11,7 @@ import sqlite3
 import stat
 import tempfile
 from collections import Counter
+from contextlib import closing
 from pathlib import Path
 
 from sql_report_probe import HEADER, MAX_LINE, UnsupportedStatement, parse_rows
@@ -46,7 +47,7 @@ def _insert_unique(db, table, columns, vals):
         return
     db.execute("INSERT INTO " + table + "(" + colnames + ") VALUES (" + slots + ")", vals)
 
-def build(sql_path, output_path):
+def build(sql_path, output_path, callback=None, independent=False):
     sql_path = Path(sql_path).resolve(strict=True)
     output_path = Path(output_path)
     if not sql_path.is_file() or sql_path == output_path.resolve():
@@ -63,11 +64,13 @@ def build(sql_path, output_path):
     os.close(fd)
     temp = Path(temp_name)
     try:
-        with sqlite3.connect(temp) as db:
+        with closing(sqlite3.connect(temp)) as db:
             db.executescript(SCHEMA)
             db.execute("BEGIN")
             with sql_path.open("rb", buffering=1048576) as handle:
-                for line in handle:
+                for count,line in enumerate(iter(lambda: handle.readline(MAX_LINE+1),b''),1):
+                    if len(line)>MAX_LINE: raise ValueError("SQL statement exceeds supported line size")
+                    if callback and count%1000==0: callback(count)
                     m = HEADER.match(line[:2048])
                     if not m:
                         continue
@@ -84,7 +87,7 @@ def build(sql_path, output_path):
                                 if len(row) != 28:
                                     raise ValueError("labdataex layout changed")
                                 rid, narrative = row[0], row[5]
-                                if rid and narrative and (b"FINDINGS:" in narrative.upper()
+                                if rid and narrative and (independent or b"FINDINGS:" in narrative.upper()
                                                           or b"IMPRESSION:" in narrative.upper()):
                                     _insert_unique(db, "narratives", ["report_id", "text"], [rid, narrative])
                             elif table == "labdata":
@@ -109,10 +112,12 @@ def build(sql_path, output_path):
                                                    [row[0], row[1]])
                     except UnsupportedStatement:
                         raise ValueError("Unsupported expression in target SQL statement") from None
+            if callback: callback(count if "count" in locals() else 0)
             db.execute("""UPDATE narratives SET
                 encounter_id=(SELECT encounter_id FROM lab WHERE lab.report_id=narratives.report_id),
                 item_id=(SELECT item_id FROM lab WHERE lab.report_id=narratives.report_id),
                 result_date=(SELECT result_date FROM lab WHERE lab.report_id=narratives.report_id)""")
+            if callback: callback(count if "count" in locals() else 0)
             db.execute("""UPDATE narratives SET
                 patient_ref=(SELECT patient_ref FROM encounters WHERE encounters.encounter_id=narratives.encounter_id),
                 encounter_date=(SELECT encounter_date FROM encounters WHERE encounters.encounter_id=narratives.encounter_id),
@@ -120,7 +125,7 @@ def build(sql_path, output_path):
             # Fail closed on missing critical relationships. Do not consider these study matches.
             missing = db.execute("""SELECT count(*) FROM narratives WHERE encounter_id IS NULL
                 OR patient_ref IS NULL OR item_id IS NULL""").fetchone()[0]
-            if missing:
+            if missing and not independent:
                 raise ValueError("Unlinked narrative records; index not published")
             totals = {
                 "narratives": db.execute("SELECT count(*) FROM narratives").fetchone()[0],

@@ -32,6 +32,10 @@ async function refresh() {
   renderActivity();renderJobs();renderQueues();renderExports();renderSQL(s.sql);
   for(const id of ['scan','scan-selected','match','prepare-batch','export-batch','prepare','approve','export','mount-submit'])$(id).disabled=active()||(id==='scan-selected'&&!chosenFolders.size)||(id==='prepare'&&!$('report-choice').value);
   $('release-version').textContent='v'+s.version;updateExportSelection();
+  const savedSQL=$('reindex-sql-file').value;$('reindex-sql-file').replaceChildren(el('option','Select SQL dump'));$('reindex-sql-file').firstChild.value='';
+  for(const item of s.sql||[]){const o=el('option',item.path);o.value=item.id;$('reindex-sql-file').append(o);}$('reindex-sql-file').value=savedSQL;
+  $('reindex-catalog').disabled=active();$('reindex-sql').disabled=active();
+  $('browser-associate').disabled=active()||!uid||!browserSelection||!$('browser-confirm').checked;
   await list();
   await finishPreparation();
  } catch(e){notice(e.message,true);}finally{refreshing=false;}
@@ -79,7 +83,7 @@ const WORKSPACE_SCREENS=new Set(['overview','studies','review','matching','packa
 function showWorkspaceScreen(){
  const requested=(window.location.hash||'#studies').slice(1);
  const screen=WORKSPACE_SCREENS.has(requested)?requested:'studies';
- const effective=(screen==='review'||screen==='matching')&&!uid?'studies':screen;
+ const effective=screen==='review'&&!uid?'studies':screen;
  for(const id of WORKSPACE_SCREENS){const element=$(id);if(element)element.hidden=id!==effective;}
  $('activity').hidden=!['overview','jobs'].includes(effective);
  $('workflow').hidden=true;
@@ -112,7 +116,7 @@ function updateSelectedStudyBanner(study){
  }
  const accession=study.accession||'No accession';
  const modality=study.modality||'Unknown modality';
- const label='Selected: '+(study.name||study.patient||study.subject)+' | '+accession+' | Date: '+(study.date||'unknown')+' | '+modality+' | '+(study.count||0)+' images. Report suggestions belong to THIS study.';
+ const label='Selected: '+(study.name||study.patient||study.subject)+' | '+accession+' | Date: '+(study.date||'unknown')+' | '+modality+' | '+(study.count||0)+' images. Compare independent report records before association.';
  banner.textContent=label;
 }
 async function openStudy(value, target='#studies') {
@@ -125,7 +129,7 @@ async function openStudy(value, target='#studies') {
  $('review-report-match-status').textContent='Searching TXT and SQL reports for this selected study…';
  $('sql-candidate-list').replaceChildren();$('sql-candidate-original').value='';$('sql-candidate-summary').textContent='Select Find SQL candidates to inspect SQL-backed reports. No match is approved automatically.';
  selectedStudy=d.study;updateSelectedStudyBanner(d.study);
- void loadTXTCandidates();
+ $('browser-query').value=(d.study.name||'').split('^')[0].split(',')[0];browserOffset=0;void browseReports().catch(e=>notice(e.message,true));
  $('sql-patient-name').value=d.study.name||'';
  window.location.hash=target;
  showWorkspaceScreen();
@@ -136,7 +140,7 @@ async function openStudy(value, target='#studies') {
  $('legacy-txt-tools').open=false;
  updateLegacyTXTAvailability(d.candidates.length);
  setupDicomSeries(d.images);
- void reconcileStudyReports(d, value, generation);
+ // Independent browser replaces patient-filtered reconciliation.
  void openOHIFStatus(value);
  highlight();showWorkspaceScreen();if(!d.original_report&&d.candidates.length)await candidateText();if(d.images.length)await viewImage();
  }catch(e){if(generation===reviewRequest)notice(e.message,true);}
@@ -272,7 +276,8 @@ function updateLegacyTXTAvailability(count){
     : 'No indexed TXT report candidates for this study. Legacy preparation is unavailable unless a verified active TXT report is selected.';
 }
 function addReport(r) {const o=el('option',(r.reason?r.reason+' - ':'Manual selection - ')+r.path);o.value=r.id;$('report-choice').append(o);}
-async function candidateText(){const selected=$('report-choice').value,study=uid,generation=reviewRequest;if(!selected){$('original').value='';return;}const report=await api('/api/study/'+encodeURIComponent(study)+'/txt-report/'+selected);if(generation===reviewRequest&&selected===$('report-choice').value&&study===uid){$('original').value=report.text;if(!report.preview_allowed)notice(report.message,true);}}
+async function candidateText(){const selected=$('report-choice').value,study=uid,generation=reviewRequest;if(!selected){$('original').value='';return;}const report=await api('/api/report/'+selected);if(generation===reviewRequest&&selected===$('report-choice').value&&study===uid)$('original').value=report.text;}
+
 function highlight() {
  const text=$('sanitized').value;const parts=text.split('[REDACTED]');$('redaction-preview').replaceChildren();parts.forEach((part,i)=>{if(i)$('redaction-preview').append(el('mark','[REDACTED]'));$('redaction-preview').append(document.createTextNode(part));});$('redaction-summary').textContent=(parts.length-1)+' proposed redactions. Review the original and sanitized report; edits do not approve it.';
 }
@@ -490,7 +495,7 @@ $('historical-emr-refresh').onclick=safely(loadHistoricalEMR);
 $('errors-refresh').onclick=safely(async()=>{const rows=await api('/api/source-errors');$('source-errors').replaceChildren();for(const row of rows)$('source-errors').append(el('p',row.path+' | '+row.kind+' | '+(JSON.parse(row.metadata).error||'Check source format, encoding and access')));if(!rows.length)$('source-errors').textContent='No source errors in the active inventory.';});
 let selectedStudy=null,txtSerial=0,txtOffset=0,txtTotal=0,txtSelected=null,preparedJob=null;
 function clearActiveStudy(){
- selectedStudy=null;txtSelected=null;txtOffset=0;++txtSerial;++imageRequest;++reconcileSerial;
+ clearBrowserPreview();$('browser-note').value='';selectedStudy=null;txtSelected=null;txtOffset=0;++txtSerial;++imageRequest;++reconcileSerial;
  if(imageURL){URL.revokeObjectURL(imageURL);imageURL=null;}
  $('image').removeAttribute('src');$('mask-canvas').width=0;
  $('ohif-iframe').removeAttribute('src');$('ohif-host').hidden=true;$('ohif-pilot-panel').hidden=true;
@@ -592,4 +597,4 @@ function updateExportSelection(){
  $('export-selected-study').disabled=!s||!['approved','exported'].includes(s.state)||active();
 }
 
-setupWorkflowPanels();makeStudyReviewPrimary();showWorkspaceScreen();refresh();health();setInterval(refresh,10000);setInterval(health,60000);
+setupReportBrowser();setupWorkflowPanels();makeStudyReviewPrimary();showWorkspaceScreen();refresh();health();setInterval(refresh,10000);setInterval(health,60000);

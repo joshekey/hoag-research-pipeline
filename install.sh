@@ -5,10 +5,6 @@ umask 027
 source /etc/os-release
 [[ "$ID" == rhel && "$VERSION_ID" == 10* ]] || { echo 'This installer targets RHEL 10.'; exit 1; }
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-if [[ -e /etc/hoag-research/sql-candidate-review.enabled || -L /etc/hoag-research/sql-candidate-review.enabled ]]; then
-  echo 'SQL candidate review is enabled. This update requires the documented SQL identity safety hold; contact the administrator before installing.'
-  exit 1
-fi
 [[ $# -le 1 && ( $# -eq 0 || "$1" == --no-configure ) ]] || { echo 'Usage: sudo bash research_build [--no-configure]'; exit 1; }
 exec 9>/run/hoag-research-install.lock
 flock -n 9 || { echo 'Another installation is running'; exit 1; }
@@ -28,6 +24,7 @@ dnf install -y python3 python3-pip cifs-utils nginx openssl policycoreutils-pyth
 id hoag-indexer >/dev/null 2>&1 || useradd --system --home-dir /var/lib/hoag-research --shell /sbin/nologin hoag-indexer
 install -d -m 0755 /opt/hoag-research /opt/hoag-research/templates /opt/hoag-research/static
 install -d -o hoag-indexer -g hoag-indexer -m 0700 /var/lib/hoag-research
+install -d -o root -g root -m 0700 /var/lib/hoag-research/sql-private
 install -d -o root -g hoag-indexer -m 0750 /etc/hoag-research
 RUNTIME="/opt/hoag-research-runtimes/$(date +%s)-$$"
 install -d -m 0755 /opt/hoag-research-runtimes
@@ -102,6 +99,7 @@ nginx -t
 python3 "$ROOT/install_support.py" release
 systemctl enable --now hoag-dashboard.service hoag-worker.service hoag-mount.service nginx.service
 systemctl reload nginx.service
+systemctl enable --now hoag-sql.service
 for unit in "${ACTIVE[@]}"; do
   if [[ "$unit" == hoag-sql.service ]]; then systemctl start "$unit"; fi
 done

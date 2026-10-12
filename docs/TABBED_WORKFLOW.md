@@ -1,3 +1,5 @@
+> Updated in 1.3.0: see [Report browser and reindexing](REPORT_BROWSER.md) for the current unrestricted TXT/SQL workflow. The patient-filtered candidate behavior below describes release 1.2.0.
+
 # Tabbed blue workflow — 1.2.0
 
 This integration starts from the standalone 1.1.0 release and preserves its scanner,
