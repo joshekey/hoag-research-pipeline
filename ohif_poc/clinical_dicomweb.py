@@ -21,6 +21,7 @@ from pydicom.encaps import generate_frames
 
 from ohif_poc.clinical_retrieval_core import instance_bytes
 from ohif_poc.scoped_catalog import scoped_catalog
+from ohif_poc.historical_retrieval import historical_index, historical_source, historical_bytes, allowed_uids
 
 ROOT = "/ohif/dicomweb"
 UID_RE = re.compile(r"^[0-9]+(?:\.[0-9]+)*$")
@@ -84,8 +85,21 @@ def dicom_json(data):
 
 
 def get_index(config, study):
-    authorized_uid(config, study)
-    return scoped_catalog(config, study, study)
+    if study in allowed_studies(config):
+        return scoped_catalog(config, study, study)
+    return historical_index(config, study)
+
+
+def viewer_authorized_uid(config, uid):
+    if uid in allowed_studies(config):
+        return uid
+    if uid in allowed_uids(config):
+        return uid
+    abort(404)
+
+
+def is_historical(config, uid):
+    return uid not in allowed_studies(config)
 
 
 def checked_record(config, study, series, sop):
@@ -100,7 +114,7 @@ def metadata_for(config, uid, series, sop):
     row = checked_record(config, uid, series, sop)
     # Verify original index-root containment, source mtime/size, and header.
     from ohif_poc.scoped_catalog import scoped_instance
-    path = scoped_instance(config, uid, uid, series, sop)
+    path = historical_source(config,uid,series,sop)[0] if is_historical(config,uid) else scoped_instance(config, uid, uid, series, sop)
     ds = pydicom.dcmread(path, stop_before_pixels=True)
     meta = ds.to_json_dict()
     syntax = str(ds.file_meta.TransferSyntaxUID)
@@ -181,7 +195,7 @@ def create_blueprint(config):
     @bp.get(ROOT + "/studies/<uid>/series/<series>/instances/<sop>")
     def instance(uid, series, sop):
         checked_record(config, uid, series, sop)
-        raw = instance_bytes(config, uid, uid, series, sop, max_bytes=MAX_INSTANCE_BYTES)
+        raw = historical_bytes(config, uid, series, sop) if is_historical(config,uid) else instance_bytes(config, uid, uid, series, sop, max_bytes=MAX_INSTANCE_BYTES)
         return multipart(raw, "application/dicom", "instance")
 
     @bp.get(ROOT + "/studies/<uid>/series/<series>/instances/<sop>/frames/<int:frame>")
@@ -189,7 +203,7 @@ def create_blueprint(config):
         if frame != 1:
             abort(404)  # pilot preflight established single-frame objects only
         checked_record(config, uid, series, sop)
-        raw = instance_bytes(config, uid, uid, series, sop, max_bytes=MAX_INSTANCE_BYTES)
+        raw = historical_bytes(config, uid, series, sop) if is_historical(config,uid) else instance_bytes(config, uid, uid, series, sop, max_bytes=MAX_INSTANCE_BYTES)
         ds = pydicom.dcmread(io.BytesIO(raw))
         if int(ds.get("NumberOfFrames", 1) or 1) != 1:
             abort(415)
