@@ -42,6 +42,16 @@ def checked_report_identity(report_text, expected_dicom_name):
         return 'conflict'
     return 'consistent'
 
+def unique_report_assignments(matches):
+    """Return only one-to-one study/report pairs; never resolve ambiguity by rank."""
+    usages=defaultdict(set)
+    for study_id,report_ids in matches.items():
+        for report_id in report_ids:
+            usages[report_id].add(study_id)
+    return {study_id:report_ids[0] for study_id,report_ids in matches.items()
+            if len(report_ids)==1 and len(usages[report_ids[0]])==1}
+
+
 def eligible_pairs(config):
     """Re-evaluate uniquely matched pairs from indexed source metadata."""
     if not permitted():
@@ -88,15 +98,10 @@ def eligible_pairs(config):
     # Fail closed if the strong-lead population expanded unexpectedly.
     if len(matches)>20:
         raise ValueError("Historical candidate scope changed")
-    # Exclude documents nominated for more than one historical examination.
-    reuse_counts=defaultdict(int)
-    for report_ids in matches.values():
-        for report_id in set(report_ids):
-            reuse_counts[report_id]+=1
+    assignments=unique_report_assignments(matches)
     verified=[]
-    for uid,ids in sorted(matches.items()):
-        if len(ids)!=1 or reuse_counts[ids[0]]!=1:
-            continue
+    for uid,report_id in sorted(assignments.items()):
+        ids=[report_id]
         rows=[row for row in dicoms
               if json.loads(row["metadata"]).get("StudyInstanceUID")==uid]
         if not rows:
