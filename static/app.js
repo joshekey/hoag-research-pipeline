@@ -308,12 +308,12 @@ async function loadHistoricalEMR(){
  const panel=$('historical-emr-leads'),detail=$('historical-emr-detail');
  panel.replaceChildren();detail.hidden=true;$('historical-emr-report').value='';
  historicalViewerUrl='';$('historical-ohif-host').hidden=true;$('historical-ohif-iframe').removeAttribute('src');$('historical-ohif-toggle').hidden=true;
- $('historical-emr-status').textContent='Checking verified historical study/report leads…';
+ $('historical-emr-status').textContent='Loading independent historical records. These do not follow the active study selection…';
  const result=await api('/api/historical-emr/candidates');
- $('historical-emr-status').textContent=result.count+' eligible historical candidate(s), review-only. No match confirmed.';
+ $('historical-emr-status').textContent=result.count+' independent historical candidate(s); these do NOT correspond to the currently selected study. No match confirmed.';
  for(const lead of result.candidates){
   const line=el('div',undefined,'card');
-  line.append(el('h4',lead.label),el('p',lead.instance_count+' historical DICOM files'),
+  line.append(el('h4',lead.label),el('p','Independent historical study — not the selected active study'),el('p',lead.instance_count+' historical DICOM files'),
     el('p',lead.evidence.join(' + ')),
     button('Inspect original EMR report',safely(async()=>{
       detail.hidden=true;$('historical-emr-report').value='';
