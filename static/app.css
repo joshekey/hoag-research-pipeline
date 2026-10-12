@@ -153,3 +153,18 @@ tbody tr:hover{background:#173555}
  .admin-links{grid-template-columns:1fr}
  #current-study-banner{font-size:13px}
 }
+
+/* Integrated product assistance + reconciliation controls */
+.context-help-link{font-size:13px;color:#a9d5ff;text-decoration:underline;text-underline-offset:3px}
+.context-help-link:hover{color:#fff}
+#help{max-width:1170px}
+#help ol{padding-left:24px}
+#help ol li{padding:6px 0;color:#d5e4f6}
+#help a{color:#8bc5ff}
+#help h3{margin-top:0}
+.help-terms{display:grid;grid-template-columns:minmax(180px,240px) 1fr;gap:12px 24px}
+.help-terms dt{font-weight:700;color:#e6f3ff}
+.help-terms dd{margin:0;color:#b6cce7}
+#reconcile-study-reports{margin-bottom:10px}
+#reconcile-study-reports:disabled{opacity:.55}
+@media(max-width:700px){.help-terms{grid-template-columns:1fr;gap:4px}.help-terms dd{margin-bottom:14px}}
