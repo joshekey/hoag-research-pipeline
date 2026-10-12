@@ -225,9 +225,11 @@ async function loadSQLCandidates() {
    if(item.result_date_matches)line.append(el('p','SQL RESULT DATE matches DICOM StudyDate; this is not independently verified exam date.','warning'));
    if(item.conflicts?.length)line.append(el('p','CONFLICTS: '+item.conflicts.join(', '),'warning'));
    line.append(button('Preview original SQL report',safely(async()=>{
-     const selected=uid;
+     const selected=study;
+     if(uid!==selected||$('sql-patient-name').value.trim()!==confirmedName)
+       throw Error('Selected DICOM study or patient entry changed; reconcile again.');
      const response=await api('/api/study/'+encodeURIComponent(selected)+'/sql-candidate/'+item.token);
-     if(uid===selected){
+     if(uid===selected&&$('sql-patient-name').value.trim()===confirmedName){
        $('sql-candidate-original').value=response.text;
        $('sql-candidate-readable').value=response.formatted || response.text;
        $('sql-candidate-format-status').textContent=response.format_status==='xml'
