@@ -1,5 +1,10 @@
 # HOAG Research Pipeline
 
+Release **1.1.0**. This standalone repository is the authoritative full application.
+The `dcmsys/research_pipeline` discovery pilot must not be installed over it: both use
+the same application directory and dashboard service. `pipeline.py` remains only for
+legacy catalog compatibility; the web application and worker use `manage.py`.
+
 Internal RHEL 10 web application for indexing SMB shares, correlating TXT reports, reviewing de-identification, and exporting research packages. Designed for one worker on a 4 CPU / 12 GB server. No patient data is sent to GitHub or an external AI service.
 
 ## Install or update
@@ -18,6 +23,67 @@ cd hoag-research-pipeline
 git pull --ff-only
 sudo bash research_build --no-configure
 ```
+
+### Recover from the discovery pilot or an old conflicting checkout
+
+Wait for all scans and exports to finish. Use a fresh checkout so local edits and shell
+line-ending changes in earlier clones are preserved:
+
+```bash
+cd ~
+git clone https://github.com/joshekey/hoag-research-pipeline.git hoag-research-pipeline-v1.1.0
+cd hoag-research-pipeline-v1.1.0
+if sudo test -f /etc/hoag-research/config.json; then
+  sudo bash research_build --no-configure
+else
+  sudo bash research_build
+fi
+```
+
+If the new checkout directory already exists, use a new empty directory name. An existing
+full application configuration retains its share credentials, administrator login and
+`secret_key`. A pilot-only installation needs the configuration prompts for two source
+shares and a separate output share. Its `catalog.sqlite` is preserved and backed up;
+its incomplete header inventory cannot be used as a reviewed study catalog. Start a new
+scan from the full GUI after installation. Existing completed export folders are retained.
+
+The installer builds dependencies in a separate runtime before stopping services, checks
+that the service account can run Python and load the local NLP model, refuses active jobs,
+and reserves the queue on this release during updates. The first update from an older
+release also rechecks jobs after stopping services; keep the GUI idle during installation.
+Before replacing application files, it prints a root-only backup path under
+`/var/backups/hoag-research/`. Backups include configuration/credentials, old application
+files, service definitions, NGINX configuration and consistent SQLite snapshots using the
+online backup API. External runtime directories and export packages are retained in place;
+they are not duplicated in backups. Keep the printed backup path for recovery. This is a
+pre-update backup, not automatic rollback. Failed updates need service-status inspection.
+
+Verify the installed release and services:
+
+```bash
+sudo -u hoag-indexer /opt/hoag-research/venv/bin/python /opt/hoag-research/manage.py version
+sudo systemctl --no-pager --full status hoag-dashboard hoag-worker hoag-mount nginx
+sudo -u hoag-indexer /opt/hoag-research/venv/bin/python /opt/hoag-research/manage.py doctor
+```
+
+The version command should print `1.1.0`. If doctor reports unavailable mounts, connect
+them in **Sources & mounts**, then rerun doctor and scan the selected folders. Refresh
+the GUI with Ctrl+Shift+R. No successful doctor check is implied by installation alone.
+
+### Scanner repairs in 1.1.0
+
+Inventory writes commit in batches of up to 100 files without holding a SQLite write lock
+during SMB reads. An interrupted batch is reread on retry; committed batches are reusable.
+Parser/encoding changes invalidate the unchanged-file cache. Individual stat failures and
+invalid `.dcm` files appear as source errors rather than ending the job. Unrelated files are
+ignored. Deletion reconciliation runs only after a complete successful traversal; a failed
+or cancelled traversal leaves previous inventory records in place and blocks review/export.
+Selecting different folders intentionally replaces the active catalog scope. A first scan
+on this release reparses existing records once. Actual SMB throughput still needs measuring.
+
+SQL schema inspection is available; automatic SQL-row report matching still requires an
+importer based on the actual hospital schema. Exact accession/UID candidates and manual
+report selection are supported. Do not infer a database relationship from patient ID alone.
 
 The installer installs Python dependencies and the English NLP model, a dedicated service account, web and worker services, NGINX HTTPS on **8443**, and SMB client tools. It enables NGINX's SELinux network-proxy boolean and, if firewalld is running, opens TCP 8443 in its default zone. SELinux remains enabled. Restrict the firewall to the intended hospital network using your normal IT controls. Package repositories, PyPI, and GitHub release downloads must be reachable during installation. Processing uses the locally installed model.
 

@@ -9,6 +9,8 @@ from store import Cancelled, audit, checkpoint, database
 def process_one(config):
     with database(config) as db:
         db.execute('BEGIN IMMEDIATE')
+        if db.execute("SELECT 1 FROM settings WHERE key='installation_active' AND value='1'").fetchone():
+            return False
         job = db.execute("SELECT * FROM jobs WHERE state='queued' ORDER BY id LIMIT 1").fetchone()
         if not job:
             return False

@@ -5,31 +5,63 @@ umask 027
 source /etc/os-release
 [[ "$ID" == rhel && "$VERSION_ID" == 10* ]] || { echo 'This installer targets RHEL 10.'; exit 1; }
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+[[ $# -le 1 && ( $# -eq 0 || "$1" == --no-configure ) ]] || { echo 'Usage: sudo bash research_build [--no-configure]'; exit 1; }
+exec 9>/run/hoag-research-install.lock
+flock -n 9 || { echo 'Another installation is running'; exit 1; }
+if [[ "${1:-}" == --no-configure && ! -f /etc/hoag-research/config.json ]]; then
+  echo 'No full application configuration exists. Run sudo bash research_build to configure the shares.'
+  exit 1
+fi
 # Updates must never interrupt a scan, review preparation or export.
 if [[ -f /etc/hoag-research/config.json ]]; then
-  python3 - <<'PY_CHECK_IDLE'
-import json, sqlite3
-from pathlib import Path
-config = json.loads(Path('/etc/hoag-research/config.json').read_text())
-path = Path(config['state_dir']) / 'workflow.sqlite'
-if path.exists():
-    with sqlite3.connect(path.as_uri() + '?mode=ro', uri=True) as db:
-        if db.execute("SELECT 1 FROM jobs WHERE state IN ('queued','running') LIMIT 1").fetchone():
-            raise SystemExit('An indexing or processing job is active. Wait for completion before installing updates.')
-PY_CHECK_IDLE
+  python3 "$ROOT/install_support.py" check-idle
+fi
+if pgrep -f '^.*python[^ ]* /opt/hoag-research/pipeline.py scan( |$)' >/dev/null; then
+  echo 'A legacy discovery scan is active. Wait for it to finish before installing.'
+  exit 1
 fi
 dnf install -y python3 python3-pip cifs-utils nginx openssl policycoreutils-python-utils
 id hoag-indexer >/dev/null 2>&1 || useradd --system --home-dir /var/lib/hoag-research --shell /sbin/nologin hoag-indexer
 install -d -m 0755 /opt/hoag-research /opt/hoag-research/templates /opt/hoag-research/static
 install -d -o hoag-indexer -g hoag-indexer -m 0700 /var/lib/hoag-research
 install -d -o root -g hoag-indexer -m 0750 /etc/hoag-research
-python3 -m venv /opt/hoag-research/venv
-/opt/hoag-research/venv/bin/pip install -r "$ROOT/requirements.txt"
-/opt/hoag-research/venv/bin/pip install 'https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl'
+RUNTIME="/opt/hoag-research-runtimes/$(date +%s)-$$"
+install -d -m 0755 /opt/hoag-research-runtimes
+python3 -m venv "$RUNTIME"
+"$RUNTIME/bin/pip" install -r "$ROOT/requirements.txt"
+"$RUNTIME/bin/pip" install 'https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl'
 # The service account must be able to traverse and read the root-installed runtime.
-chmod -R a+rX /opt/hoag-research/venv
+chmod -R a+rX "$RUNTIME"
+runuser -u hoag-indexer -- "$RUNTIME/bin/python" -c 'import flask, pydicom, dicomanonymizer, presidio_analyzer, spacy; spacy.load("en_core_web_sm")'
+# Recheck after downloads and close the queue/installer race before copying files.
+python3 "$ROOT/install_support.py" reserve
+ACTIVE=()
+for unit in hoag-dashboard.service hoag-worker.service hoag-mount.service; do
+  if systemctl is-active --quiet "$unit"; then ACTIVE+=("$unit"); fi
+done
+resume_previous() {
+  python3 "$ROOT/install_support.py" release || true
+  if [[ ${#ACTIVE[@]} -gt 0 ]]; then systemctl start "${ACTIVE[@]}"; fi
+  echo "Installation failed. Preserve the printed backup and inspect service status before retrying."
+}
+trap resume_previous ERR
 systemctl stop hoag-dashboard.service hoag-worker.service hoag-mount.service 2>/dev/null || true
-for file in manage.py store.py engine.py worker.py webapp.py configure.py sql_schema.py mount_service.py config.example.json; do
+for unit in hoag-dashboard.service hoag-worker.service hoag-mount.service; do
+  if systemctl is-active --quiet "$unit"; then
+    echo "Could not stop $unit; refusing to replace application files."
+    resume_previous
+    exit 1
+  fi
+done
+python3 "$ROOT/install_support.py" check-idle
+BACKUP="/var/backups/hoag-research/$(date +%s)-$$"
+python3 "$ROOT/install_support.py" backup --destination "$BACKUP"
+# Switch only after the new environment is usable; retain the old one for recovery.
+if [[ -e /opt/hoag-research/venv || -L /opt/hoag-research/venv ]]; then
+  mv /opt/hoag-research/venv "/opt/hoag-research/venv.previous.$(date +%s)-$$"
+fi
+ln -s "$RUNTIME" /opt/hoag-research/venv
+for file in manage.py store.py engine.py worker.py webapp.py configure.py sql_schema.py mount_service.py install_support.py pipeline.py config.example.json VERSION; do
   install -m 0644 "$ROOT/$file" "/opt/hoag-research/$file"
 done
 install -m 0644 "$ROOT/templates/index.html" /opt/hoag-research/templates/index.html
@@ -55,10 +87,13 @@ install -m 0600 /etc/hoag-research/tls.key /etc/pki/tls/private/hoag-research.ke
 install -m 0644 /etc/hoag-research/tls.crt /etc/pki/tls/certs/hoag-research.crt
 restorecon /etc/pki/tls/private/hoag-research.key /etc/pki/tls/certs/hoag-research.crt
 restorecon -RF /etc/hoag-research /opt/hoag-research /var/lib/hoag-research /etc/nginx/conf.d/hoag-research.conf
+restorecon -RF "$RUNTIME"
 setsebool -P httpd_can_network_connect 1
 nginx -t
+python3 "$ROOT/install_support.py" release
 systemctl enable --now hoag-dashboard.service hoag-worker.service hoag-mount.service nginx.service
 systemctl reload nginx.service
+trap - ERR
 if systemctl is-active --quiet firewalld; then
   firewall-cmd --permanent --add-port=8443/tcp
   firewall-cmd --reload

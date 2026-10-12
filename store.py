@@ -106,6 +106,8 @@ def enqueue(config, kind, payload=None, actor='admin'):
         raise ValueError('Unknown job type')
     with database(config) as db:
         db.execute('BEGIN IMMEDIATE')
+        if db.execute("SELECT 1 FROM settings WHERE key='installation_active' AND value='1'").fetchone():
+            raise ValueError('An application update is in progress; retry after installation completes')
         if db.execute("SELECT 1 FROM jobs WHERE state IN ('queued','running')").fetchone():
             raise ValueError('Another job is queued or running')
         cursor = db.execute('INSERT INTO jobs(kind,payload,created) VALUES (?,?,?)',
@@ -115,6 +117,8 @@ def enqueue(config, kind, payload=None, actor='admin'):
 
 
 def idle(db):
+    if db.execute("SELECT 1 FROM settings WHERE key='installation_active' AND value='1'").fetchone():
+        raise ValueError('An application update is in progress; retry after installation completes')
     if db.execute("SELECT 1 FROM jobs WHERE state IN ('queued','running')").fetchone():
         raise ValueError('Wait for the current job before changing a review')
 

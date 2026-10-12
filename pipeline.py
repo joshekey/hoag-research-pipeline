@@ -1,4 +1,4 @@
-"""Local discovery catalog. Contains PHI. Does not anonymize or export."""
+"""Legacy discovery compatibility tool. Use manage.py for the full application."""
 import argparse
 from contextlib import closing
 import json
@@ -22,11 +22,13 @@ def connect(path):
 
 def scan(dbpath, root, kind):
     import pydicom
+    from pydicom.errors import InvalidDicomError
     root = Path(root).resolve(strict=True)
     if not root.is_dir():
         raise ValueError('Source must be a directory')
     db = connect(dbpath)
     total = skipped = failed = 0
+    seen = set()
     def walk_error(error):
         # Do not print potentially identifying source paths.
         raise RuntimeError('Directory traversal failed; check share permissions') from None
@@ -38,8 +40,9 @@ def scan(dbpath, root, kind):
                     continue
                 stat = path.stat()
                 key = str(path)
-                previous = db.execute('SELECT size,mtime,status FROM files WHERE path=?', (key,)).fetchone()
-                if previous == (stat.st_size, stat.st_mtime_ns, 'ok'):
+                seen.add(key)
+                previous = db.execute('SELECT size,mtime,status,kind FROM files WHERE path=?', (key,)).fetchone()
+                if previous == (stat.st_size, stat.st_mtime_ns, 'ok', kind):
                     skipped += 1
                     continue
                 metadata, status = {}, 'ok'
@@ -58,7 +61,7 @@ def scan(dbpath, root, kind):
                     after = path.stat()
                     if (after.st_size, after.st_mtime_ns) != (stat.st_size, stat.st_mtime_ns):
                         raise ValueError('Source changed during read')
-                except (OSError, ValueError, EOFError, UnicodeError):
+                except (InvalidDicomError, OSError, ValueError, EOFError, UnicodeError):
                     status = 'error'
                     metadata = {}
                     failed += 1
@@ -66,6 +69,11 @@ def scan(dbpath, root, kind):
                            (key, kind, stat.st_size, stat.st_mtime_ns, json.dumps(metadata), status))
                 db.commit()  # Checkpoint each file so interrupted scans resume.
                 total += 1
+        # Reconcile only this source/kind after a complete traversal.
+        for key, in db.execute('SELECT path FROM files WHERE kind=?', (kind,)).fetchall():
+            if Path(key).is_relative_to(root) and key not in seen:
+                db.execute('DELETE FROM files WHERE path=?', (key,))
+        db.commit()
         print(json.dumps({'indexed': total, 'unchanged': skipped, 'errors': failed}))
     finally:
         db.close()

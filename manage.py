@@ -10,8 +10,12 @@ def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='/etc/hoag-research/config.json')
-    parser.add_argument('command', choices=['web', 'worker', 'init', 'scan', 'match', 'doctor'])
+    parser.add_argument('command', choices=['web', 'worker', 'init', 'scan', 'match', 'doctor', 'version'])
     args = parser.parse_args()
+    if args.command == 'version':
+        from pathlib import Path
+        print(Path(__file__).with_name('VERSION').read_text().strip())
+        return 0
     config = load_config(args.config)
     initialize(config)
     if args.command == 'web':

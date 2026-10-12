@@ -130,26 +130,61 @@ def scan(config, job=None, folders=None):
     scopes = selection(config, folders)
     run = str(uuid.uuid4())
     count = 0
+    # A changed parser/encoding must invalidate otherwise unchanged file entries.
+    parser_key = '2:' + config['report_encoding']
+    with database(config) as db:
+        previous_parser = db.execute("SELECT value FROM settings WHERE key='scan_parser'").fetchone()
+    reuse = previous_parser is not None and previous_parser[0] == parser_key
+    pending = []
+
+    def flush():
+        if not pending:
+            return
+        with database(config) as db:
+            db.executemany('''INSERT INTO files(path,root,kind,size,mtime,metadata,status,seen)
+                VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET
+                root=excluded.root,kind=excluded.kind,size=excluded.size,mtime=excluded.mtime,
+                metadata=excluded.metadata,status=excluded.status,seen=excluded.seen,active=1''', pending)
+        pending.clear()
+
     for root, selected in scopes:
         def onerror(error):
             raise OSError('Source traversal failed') from None
         for directory, dirs, names in os.walk(selected, onerror=onerror, followlinks=False):
             checkpoint(config, job)
             dirs[:] = [d for d in dirs if not (Path(directory) / d).is_symlink()]
+            # One short read transaction per directory, no write lock during SMB reads.
+            with database(config) as db:
+                old_files = {}
+                for offset in range(0, len(names), 400):
+                    keys = [str(Path(directory) / name) for name in names[offset:offset + 400]]
+                    placeholders = ','.join('?' for _ in keys)
+                    old_files.update({r['path']: dict(r) for r in db.execute(
+                        f'SELECT * FROM files WHERE path IN ({placeholders})', keys)})
             for name in names:
                 path = Path(directory) / name
-                if path.is_symlink():
-                    continue
-                stat = path.stat()
-                with database(config) as db:
-                    old = db.execute('SELECT * FROM files WHERE path=?', (str(path),)).fetchone()
-                    if old and old['status'] in ('ok', 'ignored') and (old['size'], old['mtime']) == (stat.st_size, stat.st_mtime_ns):
-                        db.execute('UPDATE files SET active=1,seen=? WHERE id=?', (run, old['id']))
-                        count += 1
-                        if count % 100 == 0:
-                            db.commit()
-                            progress(config, job, count, 'Scanning files (including unchanged files)', 'Scanning files')
+                if count % 100 == 0:
+                    checkpoint(config, job)
+                try:
+                    if path.is_symlink():
                         continue
+                    stat = path.stat()
+                except OSError:
+                    pending.append((str(path), str(root), 'other', None, None,
+                                    json.dumps({'error': 'Cannot stat source file; check share access'}), 'error', run))
+                    count += 1
+                    if len(pending) >= 100:
+                        flush()
+                        progress(config, job, count, 'Scanning files; these are not study counts', 'Scanning files')
+                    continue
+                old = old_files.get(str(path))
+                if reuse and old and old['root'] == str(root) and old['status'] in ('ok', 'ignored') and (old['size'], old['mtime']) == (stat.st_size, stat.st_mtime_ns):
+                    pending.append((str(path), str(root), old['kind'], old['size'], old['mtime'], old['metadata'], old['status'], run))
+                    count += 1
+                    if len(pending) >= 100:
+                        flush()
+                        progress(config, job, count, 'Scanning files (including unchanged files)', 'Scanning files')
+                    continue
                 kind, status, meta = 'other', 'ignored', {}
                 try:
                     if path.suffix.lower() == '.txt':
@@ -192,18 +227,16 @@ def scan(config, job=None, folders=None):
                         kind, status, meta = 'dicom', 'error', {'error': 'Invalid DICOM header'}
                 except (ValueError, OSError, EOFError):
                     status, meta = 'error', {'error': 'Cannot read this file; check permissions, text encoding, file size and DICOM identifiers'}
-                with database(config) as db:
-                    db.execute('''INSERT INTO files(path,root,kind,size,mtime,metadata,status,seen)
-                        VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET
-                        root=excluded.root,kind=excluded.kind,size=excluded.size,mtime=excluded.mtime,
-                        metadata=excluded.metadata,status=excluded.status,seen=excluded.seen,active=1''',
-                        (str(path), str(root), kind, stat.st_size, stat.st_mtime_ns, json.dumps(meta), status, run))
+                pending.append((str(path), str(root), kind, stat.st_size, stat.st_mtime_ns, json.dumps(meta), status, run))
                 count += 1
-                if count % 100 == 0:
+                if len(pending) >= 100:
+                    flush()
                     progress(config, job, count, 'Scanning files; these are not study counts', 'Scanning files')
+    flush()
     with database(config) as db:
         db.execute('UPDATE files SET active=0 WHERE seen IS NULL OR seen<>?', (run,))
         db.execute("INSERT OR REPLACE INTO settings VALUES ('scan_folders',?)", (json.dumps(folders),))
+        db.execute("INSERT OR REPLACE INTO settings VALUES ('scan_parser',?)", (parser_key,))
     progress(config, job, count, 'File scan complete; building study catalog and report links', 'Building studies')
     match(config, job, from_scan=True)
     with database(config) as db:

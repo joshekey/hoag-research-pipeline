@@ -63,7 +63,8 @@ def create_app(config):
             exports = [dict(r) for r in db.execute('SELECT id,folder,created,bytes,validated,validation FROM exports ORDER BY id DESC LIMIT 100')]
             settings = dict(db.execute('SELECT key,value FROM settings'))
             modalities = [r[0] for r in db.execute("SELECT DISTINCT modality FROM studies ORDER BY modality")]
-        return jsonify(counts=counts, states=states, jobs=jobs, sql=sql, exports=exports, settings=settings, modalities=modalities, now=time.time(),
+        version = Path(__file__).with_name('VERSION').read_text().strip()
+        return jsonify(version=version, counts=counts, states=states, jobs=jobs, sql=sql, exports=exports, settings=settings, modalities=modalities, now=time.time(),
                        sources=config['source_roots'], output=config['output_root'])
 
     @app.get('/api/studies')
