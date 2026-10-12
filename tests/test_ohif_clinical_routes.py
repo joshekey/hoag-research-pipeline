@@ -97,8 +97,9 @@ class ClinicalOHIFPilotTests(unittest.TestCase):
 
     def test_lossless_compressed_frame_media_types(self):
         from pydicom.encaps import encapsulate
-        from pydicom.uid import JPEGLosslessSV1, JPEG2000Lossless
-        for syntax, media in ((JPEGLosslessSV1,"image/jpeg"),
+        from pydicom.uid import JPEGLossless, JPEGLosslessSV1, JPEG2000Lossless
+        for syntax, media in ((JPEGLossless,"image/jpeg"),
+                              (JPEGLosslessSV1,"image/jpeg"),
                               (JPEG2000Lossless,"image/jp2")):
             with self.subTest(media=media):
                 ds=deepcopy(synthetic_dataset(SOPS[0]))
