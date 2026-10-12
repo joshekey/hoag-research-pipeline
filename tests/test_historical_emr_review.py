@@ -88,8 +88,9 @@ class HistoricalEMRReviewTests(unittest.TestCase):
         end=js.index("async function loadSQLDraft()",start)
         review=js[start:end]
         self.assertIn("const sqlTotal=await loadSQLCandidates()",review)
-        self.assertIn("const txtCount=d.candidates.length",review)
-        self.assertIn("generation!==reviewRequest||uid!==value",review)
+        self.assertIn("void reconcileStudyReports(d, value, generation)",review)
+        self.assertIn("const txtCount=detail.candidates.length",review)
+        self.assertIn("generation===reviewRequest&&uid===study",review)
         self.assertIn('id="review-report-match-status"',html)
         self.assertIn('id="review-report-match-results"',html)
 
