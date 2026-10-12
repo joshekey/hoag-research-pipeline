@@ -30,6 +30,30 @@ class HistoricalEMRReviewTests(unittest.TestCase):
         self.auth={"Authorization":"Basic "+base64.b64encode(
             b"synthetic:safe-test-password").decode()}
 
+    def test_study_specific_review_payload_and_selection_contract(self):
+        from historical_emr_review import listing
+        fake=[
+            {"token":"a"*32,"instances":120,"study":{"dates":{"20261001"},
+             "modalities":{"MR"}}},
+            {"token":"b"*32,"instances":228,"study":{"dates":{"20261002"},
+             "modalities":{"CT"}}},
+        ]
+        with patch("historical_emr_review.eligible_pairs",return_value=fake):
+            result=listing({})
+        self.assertTrue(result["independent_from_active_catalog"])
+        self.assertEqual([r["study_ref"] for r in result["candidates"]],
+                         ["AAAAAAAA","BBBBBBBB"])
+        self.assertEqual([r["instance_count"] for r in result["candidates"]],
+                         [120,228])
+
+    def test_historical_frontend_cannot_reuse_stale_selection(self):
+        root=Path(__file__).resolve().parents[1]
+        js=(root/"static/app.js").read_text()
+        self.assertIn("historicalSelectedToken=lead.token",js)
+        self.assertIn("serial!==historicalSelectionSerial",js)
+        self.assertIn("preview.historical_study_ref!==lead.study_ref",js)
+        self.assertIn("frame.removeAttribute('src')",js)
+
     def test_report_reuse_across_studies_is_rejected(self):
         from historical_emr_review import unique_report_assignments
         self.assertEqual(unique_report_assignments({
