@@ -292,9 +292,22 @@ $('folder-open').onclick=()=>{folderRelative='.';folderOffset=0;browseFolders();
 $('folder-up').onclick=()=>{folderRelative=folderRelative.includes('/')?folderRelative.slice(0,folderRelative.lastIndexOf('/')):'.';folderOffset=0;browseFolders();};
 $('folder-more').onclick=()=>{folderOffset+=200;browseFolders(true);};$('scan-selected').onclick=()=>queue('scan',{folders:[...chosenFolders.values()]});
 
+let historicalViewerUrl='';
+$('historical-ohif-toggle').onclick=()=>{
+ const host=$('historical-ohif-host'),frame=$('historical-ohif-iframe');
+ if(!historicalViewerUrl)return;
+ if(host.hidden){
+   frame.src=historicalViewerUrl;host.hidden=false;
+   $('historical-ohif-toggle').textContent='Close historical OHIF viewer';
+ }else{
+   frame.removeAttribute('src');host.hidden=true;
+   $('historical-ohif-toggle').textContent='Open this historical study in OHIF';
+ }
+};
 async function loadHistoricalEMR(){
  const panel=$('historical-emr-leads'),detail=$('historical-emr-detail');
  panel.replaceChildren();detail.hidden=true;$('historical-emr-report').value='';
+ historicalViewerUrl='';$('historical-ohif-host').hidden=true;$('historical-ohif-iframe').removeAttribute('src');$('historical-ohif-toggle').hidden=true;
  $('historical-emr-status').textContent='Checking verified historical study/report leads…';
  const result=await api('/api/historical-emr/candidates');
  $('historical-emr-status').textContent=result.count+' eligible historical candidate(s), review-only. No match confirmed.';
@@ -304,6 +317,7 @@ async function loadHistoricalEMR(){
     el('p',lead.evidence.join(' + ')),
     button('Inspect original EMR report',safely(async()=>{
       detail.hidden=true;$('historical-emr-report').value='';
+      historicalViewerUrl='';$('historical-ohif-host').hidden=true;$('historical-ohif-iframe').removeAttribute('src');$('historical-ohif-toggle').hidden=true;
       const preview=await api('/api/historical-emr/candidate/'+encodeURIComponent(lead.token));
       $('historical-emr-title').textContent=lead.label+' — report comparison';
       $('historical-emr-evidence').textContent='Evidence: '+preview.evidence.join(' + ')+'. Requires manual confirmation.';
@@ -311,6 +325,10 @@ async function loadHistoricalEMR(){
        ' | '+preview.dicom_study_date+' | '+preview.dicom_modality+
        ' | '+preview.dicom_instances+' indexed historical instances.';
       $('historical-emr-report').value=preview.report_text;
+      $('historical-emr-identity').textContent='Patient identity: parsed fields consistent; manually compare full EMR header and DICOM. Historical study only — NOT the current catalog study.';
+      historicalViewerUrl=preview.ohif_available?preview.viewer_url:'';
+      $('historical-ohif-toggle').hidden=!historicalViewerUrl;
+      $('historical-ohif-toggle').textContent='Open this historical study in OHIF';
       detail.hidden=false;detail.scrollIntoView({behavior:'smooth'});
     })));
   panel.append(line);
