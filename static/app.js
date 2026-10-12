@@ -72,7 +72,7 @@ async function list() {
  const generation=++listing;const query=new URLSearchParams({paged:'1',q:$('search').value,offset,state:$('filter-state').value,modality:$('filter-modality').value,from:$('filter-from').value,to:$('filter-to').value,sort:$('filter-sort').value,direction:$('filter-direction').value});
  const result=await api('/api/studies?'+query);if(generation!==listing)return;
  total=result.total;if(offset>=total&&offset>0){offset=Math.max(0,Math.ceil(total/100)-1)*100;return list();}
- $('study-rows').replaceChildren();for(const s of result.rows){const tr=el('tr');const c=cell(tr,displayPatient(s.name)||s.patient||s.subject);c.append(el('span',s.subject,'sub'));[s.accession,s.date,s.modality,s.count].forEach(v=>cell(tr,v));cell(tr,labels[s.state]||s.state,'status');cell(tr,'').append(button('View images',()=>openStudy(s.uid)));$('study-rows').append(tr);}
+ $('study-rows').replaceChildren();for(const s of result.rows){const tr=el('tr');tr.dataset.studyUid=s.uid;tr.classList.toggle('selected-study',s.uid===uid);const c=cell(tr,displayPatient(s.name)||s.patient||s.subject);c.append(el('span',s.subject,'sub'));[s.accession,s.date,s.modality,s.count].forEach(v=>cell(tr,v));cell(tr,labels[s.state]||s.state,'status');cell(tr,'').append(button('View images',()=>openStudy(s.uid)));$('study-rows').append(tr);}
  if(!result.rows.length){const tr=el('tr');const c=cell(tr,active()?'No studies visible yet. Check the processing phase above.':'No studies match these filters. Clear filters or run an index.');c.colSpan=7;$('study-rows').append(tr);}
  $('catalog-summary').textContent=total.toLocaleString()+' matching studies'+(total?' | Showing '+(offset+1)+'-'+Math.min(offset+100,total):'');$('page-number').value=Math.floor(offset/100)+1;$('page-count').textContent='of '+Math.max(1,Math.ceil(total/100));$('page-number').max=Math.max(1,Math.ceil(total/100));$('previous').disabled=offset===0;$('next').disabled=offset+100>=total;
 }
@@ -95,6 +95,8 @@ function showWorkspaceScreen(){
  $('research-workbench').hidden=!workbench;
  $('studies').hidden=!workbench;$('matching').hidden=!workbench||privacy;$('review').hidden=true;
  $('privacy-dock').hidden=!privacy;$('report-tabs').hidden=privacy;
+ $('report-pane-heading').querySelector('small').textContent=privacy?'PRIVACY REVIEW':'REPORT MATCHING';
+ $('report-pane-heading').querySelector('h2').textContent=privacy?'Review before export':'Find the right report';
  $('image-empty').hidden=Boolean(selectedStudy);$('image-pane').hidden=!selectedStudy;
  for(const n of document.querySelectorAll('[data-phase]'))n.hidden=!workbench||!selectedStudy||!n.dataset.phase.split(' ').some(p=>p==='privacy'?privacy:p==='images'?!privacy:p==='reports'?!privacy:false);
  $('activity').hidden=!['overview','jobs'].includes(effective);$('workflow').hidden=true;
@@ -136,6 +138,7 @@ async function openStudy(value, target='#studies') {
  $('review-report-match-status').textContent='Searching TXT and SQL reports for this selected study…';
  $('sql-candidate-list').replaceChildren();$('sql-candidate-original').value='';$('sql-candidate-summary').textContent='Select Find SQL candidates to inspect SQL-backed reports. No match is approved automatically.';
  selectedStudy=d.study;updateSelectedStudyBanner(d.study);
+ for(const row of $('study-rows').children)row.classList.toggle('selected-study',row.dataset.studyUid===uid);
  void loadSuggestions();$('browser-query').value=(d.study.name||'').split('^')[0].split(',')[0];browserOffset=0;void browseReports().catch(e=>notice(e.message,true));
  $('sql-patient-name').value=d.study.name||'';
  window.location.hash=target;

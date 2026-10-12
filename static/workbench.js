@@ -13,7 +13,7 @@ function setupWorkbench(){
  const shell=el('section');shell.id='research-workbench';
  const browser=el('aside',undefined,'study-browser'),canvas=el('div',undefined,'image-workspace'),reports=el('aside',undefined,'report-workspace');
  shell.append(browser,canvas,reports);document.querySelector('main').insertBefore(shell,document.querySelector('footer'));
- const listHead=el('div',undefined,'pane-heading');listHead.append(el('small','01 / STUDIES'),el('h2','Indexed DICOM'));
+ const listHead=el('div',undefined,'pane-heading');listHead.append(el('small','STUDY LIBRARY'),el('h2','Indexed DICOM'));
  const listTabs=el('div',undefined,'local-tabs');
  const all=button('All studies',()=>activateStudyList('catalog'));all.id='show-catalog';
  const queue=button('Review queue',()=>activateStudyList('queue'));queue.id='show-queue';listTabs.append(all,queue);
@@ -28,7 +28,7 @@ function setupWorkbench(){
  imagePanel.id='image-pane';imagePanel.removeAttribute('data-phase');
  const empty=el('div',undefined,'image-empty');empty.id='image-empty';empty.append(el('small','RESEARCH WORKSPACE'),el('h2','Start with a study'),el('p','Choose an indexed DICOM examination on the left. Its images and suggested SQL / TXT reports will open here.'));
  canvas.append($('current-study-banner'),empty,imagePanel);
- const reportHead=el('div',undefined,'pane-heading');reportHead.append(el('small','02 / REPORTS'),el('h2','Find the right report'));
+ const reportHead=el('div',undefined,'pane-heading');reportHead.id='report-pane-heading';reportHead.append(el('small','REPORT MATCHING'),el('h2','Find the right report'));
  const tabs=el('div',undefined,'local-tabs');tabs.id='report-tabs';
  for(const [value,label] of [['suggestions','Suggested'],['search','Search all'],['preview','Compare']]){const b=button(label,()=>activateReportTab(value));b.dataset.tab=value;tabs.append(b);}
  const sql=el('div',undefined,'sql-readiness');sql.id='sql-readiness';sql.setAttribute('role','status');sql.textContent='Checking SQL report access…';
@@ -61,6 +61,12 @@ function setupWorkbench(){
  $('study-rows').addEventListener('click',()=>activateReportTab('suggestions'));
  $('research-queue-rows').addEventListener('click',()=>activateReportTab('suggestions'));
  activateStudyList('catalog');activateReportTab('suggestions');
+ $('search').placeholder='Find a patient or examination';
+ $('browser-query').placeholder='Name, accession or report text';
+ $('next-reports').classList.add('secondary');
+ $('next-anonymize').textContent='Continue to privacy review →';
+ $('next-export').textContent='Continue to export →';
+ document.querySelector('footer').textContent='HOAG Research · Restricted workspace · Processing stays on this server';
 }
 
 async function checkSQLReadiness(){
@@ -97,4 +103,18 @@ function setupOperations(){
  overview.append(foldersPanel,full,matching);
  foldersPanel.querySelector('p.muted').textContent='Connected sources are read-only. Choose the report source and folder below.';
  const inspect=button('Inspect export schema',async()=>{const file_id=Number($('reindex-sql-file').value);if(file_id){await queue('inspect_sql',{file_id});location.hash='#database';notice('Schema inspection queued. The table summary updates here after the job completes.');}else notice('Add the export folder first so the SQL file appears in the selector.',true);});full.append(inspect);
+ // Keep everyday import actions prominent and maintenance tools in disclosures.
+ intro.remove();
+ folder.querySelector('summary').textContent='Choose folders';
+ foldersPanel.prepend(el('h3','2 · Add TXT / SQL files'),el('p','Choose a report source, open its folder, then add it to your catalog. Your indexed DICOM stays in place.','step-description'));
+ foldersPanel.querySelector('p.muted').remove();
+ const paths=el('details',undefined,'connection-details');paths.append(el('summary','Connected paths'),$('sources'));foldersPanel.append(paths);
+ $('match').hidden=true;
+ const connections=el('details',undefined,'connection-details');connections.append(el('summary','Connection status and storage'),$('health'));source.append(connections);
+ const maintenance=el('details',undefined,'connection-details');maintenance.append(el('summary','Troubleshooting and full indexing'),inspect,advanced);overview.append(maintenance);
+ matching.querySelector('p:last-child').remove();
+ full.id='sql-import-step';foldersPanel.id='report-folder-step';matching.id='matching-step';
+ const introHead=el('div',undefined,'operations-intro');introHead.append(el('small','OPERATIONS'),el('h2','Bring your reports into the workspace'),el('p','Connect once. Add report files. Match them to the studies you already indexed.'));
+ source.prepend(introHead);
+ for(const b of head.querySelectorAll('button'))b.classList.add('secondary');
 }
