@@ -174,12 +174,22 @@ def create_blueprint(config):
     def series(uid):
         indexed = get_index(config, uid)
         counts = Counter(s for s, _ in indexed)
-        return dicom_json([{
-            "0020000D": {"vr": "UI", "Value": [uid]},
-            "0020000E": {"vr": "UI", "Value": [s]},
-            "00201209": {"vr": "IS", "Value": [n]},
-            "00080060": {"vr": "CS", "Value": ["MR"]},
-        } for s, n in sorted(counts.items())])
+        result = []
+        for series_uid, count in sorted(counts.items()):
+            # Never infer modality: CT, MR, US etc. must reflect the actual source.
+            sop = next(sop for series, sop in indexed if series == series_uid)
+            row = indexed[(series_uid, sop)]
+            meta = json.loads(row["metadata"])
+            modality = str(meta.get("Modality") or "").strip().upper()
+            if not re.fullmatch(r"[A-Z0-9_]{1,16}", modality):
+                modality = "OT"
+            result.append({
+                "0020000D": {"vr": "UI", "Value": [uid]},
+                "0020000E": {"vr": "UI", "Value": [series_uid]},
+                "00201209": {"vr": "IS", "Value": [count]},
+                "00080060": {"vr": "CS", "Value": [modality]},
+            })
+        return dicom_json(result)
 
     @bp.get(ROOT + "/studies/<uid>/metadata")
     def study_metadata(uid):
