@@ -50,6 +50,20 @@ class ClinicalOHIFPilotTests(unittest.TestCase):
         self.allowpatch.start()
         self.addCleanup(self.allowpatch.stop)
 
+    def test_ohif_csp_supports_jpeg_worker_without_loosening_dashboard(self):
+        # Browser JPEG Lossless worker needs dynamic Function (Emscripten).
+        viewer=self.client.get("/viewer?StudyInstanceUIDs="+STUDY,headers=self.auth)
+        viewer_csp=viewer.headers["Content-Security-Policy"]
+        self.assertIn("'unsafe-eval'",viewer_csp)
+        self.assertIn("'wasm-unsafe-eval'",viewer_csp)
+        self.assertIn("'sha256-RUJKPsAHcLA3YS8dWuPEiqEPTlkfTEHKow0zXWj7MBE='",viewer_csp)
+        self.assertIn("frame-ancestors 'self'",viewer_csp)
+        dashboard=self.client.get("/",headers=self.auth)
+        dashboard_csp=dashboard.headers["Content-Security-Policy"]
+        self.assertNotIn("'unsafe-eval'",dashboard_csp)
+        self.assertNotIn("'unsafe-inline'",dashboard_csp)
+        self.assertIn("frame-ancestors 'none'",dashboard_csp)
+
     def test_no_authorization_denied(self):
         self.assertEqual(self.client.get("/ohif/dicomweb/studies").status_code,401)
         self.assertEqual(self.client.get("/viewer?StudyInstanceUIDs="+STUDY).status_code,401)
