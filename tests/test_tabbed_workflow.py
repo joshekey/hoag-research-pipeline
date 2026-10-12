@@ -1,10 +1,13 @@
 import base64
 import json
+import sys
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 import engine
 import txt_review
+import mount_service
 import test_workflow as workflow
 from store import database
 from webapp import create_app
@@ -98,6 +101,23 @@ class TabbedWorkflowTests(unittest.TestCase):
             self.assertIn(label,response.get_data(as_text=True))
         with patch('webapp.SQL_REVIEW_GATE',self.root/'absent-gate'):
             self.assertEqual(client.get(f'/api/study/{self.uid}/sql-candidates',headers=auth).status_code,503)
+
+    def test_output_share_change_retains_review_and_scan_readiness(self):
+        with database(self.config) as db:report=db.execute("SELECT id FROM files WHERE kind='report'").fetchone()[0]
+        engine.prepare(self.config,self.uid,report,nlp=workflow.NoNLP())
+        with database(self.config) as db:study=dict(db.execute('SELECT * FROM studies WHERE uid=?',(self.uid,)).fetchone())
+        engine.approve(self.config,self.uid,study['sanitized'],[],'Synthetic complete privacy review')
+        base=self.root/'mount-settings';base.mkdir();fstab=base/'fstab';fstab.write_text('')
+        targets=dict(zip(['bulk','imaging','output'],[*self.config['source_roots'],self.config['output_root']]))
+        account=types.SimpleNamespace(pw_uid=1001,pw_gid=1001)
+        body={'slot':'output','unc':'//synthetic/research-output','username':'synthetic','password':'synthetic-secret','confirm':True}
+        with patch.dict(sys.modules,{'pwd':types.SimpleNamespace(getpwnam=lambda _:account)}),patch.multiple(mount_service,BASE=base,FSTAB=fstab,TARGETS=targets),patch('mount_service.command'),patch('mount_service.os.path.ismount',return_value=False):
+            mount_service.apply(body,self.config)
+        with database(self.config) as db:
+            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='scan_complete'").fetchone()[0],'1')
+            self.assertEqual(db.execute('SELECT state FROM studies WHERE uid=?',(self.uid,)).fetchone()[0],'approved')
+        self.assertIn(' rw,credentials=',fstab.read_text())
+        self.assertTrue((engine.export_study(self.config,self.uid)/'Report/report.txt').exists())
 
 
 if __name__=='__main__':unittest.main()

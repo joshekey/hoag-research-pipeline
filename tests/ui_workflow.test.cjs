@@ -84,3 +84,14 @@ test('late study details cannot overwrite a newer selection and keyboard tabs wo
   assert.equal(f.w.document.querySelector('#primary-navigation a[href="#matching"]').getAttribute('aria-selected'),'true');
  }finally{f.dom.window.close();}
 });
+
+test('unchecking a loading report cancels the pending selection',async()=>{
+ const f=fixture();try{
+  await settle();await f.open('1.2.3');await settle();
+  const release=f.hold('/api/study/1.2.3/txt-report/31');
+  const checkbox=f.$('txt-candidate-rows').querySelector('input');
+  checkbox.click();await pause();checkbox.click();release();await settle();
+  assert.equal(checkbox.checked,false);assert.equal(f.$('original').value,'');
+  assert.equal(f.$('txt-associate').disabled,true);
+ }finally{f.dom.window.close();}
+});

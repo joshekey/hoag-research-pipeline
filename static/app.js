@@ -112,7 +112,7 @@ function updateSelectedStudyBanner(study){
  }
  const accession=study.accession||'No accession';
  const modality=study.modality||'Unknown modality';
- const label='Selected: '+(study.name||study.patient||study.subject)+' | '+accession+' | '+modality+' | '+(study.count||0)+' images. Report suggestions belong to THIS study.';
+ const label='Selected: '+(study.name||study.patient||study.subject)+' | '+accession+' | Date: '+(study.date||'unknown')+' | '+modality+' | '+(study.count||0)+' images. Report suggestions belong to THIS study.';
  banner.textContent=label;
 }
 async function openStudy(value, target='#studies') {
@@ -567,7 +567,7 @@ async function loadTXTCandidates(manual=false){
     $('txt-preview-evidence').textContent=result.message+(result.conflicts.length?' | '+result.conflicts.join(', '):' | Report name: '+(result.name||'unknown')+' | Exam date: '+(result.exam_date||'unknown'));
     if(result.preview_allowed){select.checked=true;txtSelected=item.id;$('original').value=result.text;}else notice(result.message,true);
    };
-   select.onchange=safely(async()=>{if(select.checked)await preview();else{txtSelected=null;$('txt-associate').disabled=true;$('original').value='';}});
+   select.onchange=safely(async()=>{if(select.checked)await preview();else{++txtSerial;txtSelected=null;$('txt-confirm').checked=false;$('txt-associate').disabled=true;$('original').value='';}});
    cell(row,'').append(button('Preview',safely(preview)));$('txt-candidate-rows').append(row);
   }
   $('txt-coverage').textContent=data.total+' TXT candidates · Last name: '+(data.surname||'not structured; use a manual search')+' · Showing '+data.rows.length+' · Suggestions require manual verification. SQL coverage is shown separately.';
