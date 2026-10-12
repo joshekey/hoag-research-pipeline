@@ -75,14 +75,24 @@ def check(config):
         except (OSError,ValueError,AttributeError,pydicom.errors.InvalidDicomError):
             counts["invalid_headers"]+=1
         counts["instances_total"]+=1
+    # Never conceal aggregate diagnostic evidence behind the deployment gate.
+    # Do not print identifiers, filenames, report narratives, or paths.
+    print("=== HISTORICAL OHIF COMPATIBILITY (AGGREGATE ONLY) ===")
+    print(json.dumps({
+        "studies":counts["studies"],
+        "instances_total":counts["instances_total"],
+        "compatible_instances":counts["compatible_instances"],
+        "invalid_headers":counts["invalid_headers"],
+        "multiframe":counts["multiframe"],
+        "unsupported_transfer_syntax":counts["unsupported_transfer_syntax"],
+    },sort_keys=True,indent=2))
+    print("No patient information, UIDs, filenames, source paths, or image data displayed.")
     if counts["instances_total"]!=348 or counts["compatible_instances"]!=348:
-        raise ValueError("STOP: historical images failed compatibility/identity checks")
+        raise ValueError("STOP: image preflight incompatible; review aggregate categories above. No installation performed.")
     return dict(counts)
 
 
 if __name__=="__main__":
     from store import load_config
     result=check(load_config("/etc/hoag-research/config.json"))
-    print("=== HISTORICAL OHIF COMPATIBILITY (AGGREGATE ONLY) ===")
-    print(json.dumps(result,indent=2,sort_keys=True))
-    print("No identifiers, report text, UIDs or image payloads displayed.")
+    print("Historical OHIF preflight passed. No clinical data printed.")
