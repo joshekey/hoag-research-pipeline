@@ -174,3 +174,16 @@ tbody tr:hover{background:#173555}
 .sql-patient-search label{font-weight:700;color:#deedff}
 #sql-patient-name{display:block;width:min(100%,560px);margin-top:6px}
 .sql-patient-search p{font-size:12px;margin:8px 0 0}
+
+/* Keep legacy TXT-only preparation available without crowding clinical review. */
+.review-study-intro{padding:18px 24px;margin-bottom:14px}
+.review-study-intro h3{margin:0 0 6px}
+.review-study-intro p{margin:0}
+.legacy-txt-tools{padding:14px 20px;background:#0c203d;border-color:#34577b}
+.legacy-txt-tools>summary{font-size:14px;color:#d3e8ff;cursor:pointer}
+.legacy-txt-tools>summary .muted{font-size:12px;font-weight:400}
+.legacy-txt-tools[open]{border-color:#5493d5}
+.legacy-txt-tools .toolbar{margin:10px 0;gap:10px}
+.legacy-txt-tools #report-choice{min-width:280px;max-width:100%}
+.legacy-txt-tools #report-search{min-width:280px}
+#legacy-txt-availability{font-size:13px;color:#b3cbe7}
