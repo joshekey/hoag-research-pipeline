@@ -72,3 +72,84 @@ main{margin-left:260px;max-width:1720px;padding:28px 38px}
  #review-report-match-results{grid-template-columns:1fr}
  #studies .table-wrap{overflow-x:auto}
 }
+
+/* HOAG Research Blue Design System v1 — clinical review workspace */
+:root{
+ color-scheme:dark;
+ --bg:#07152b;
+ --panel:#11233c;
+ --line:#284568;
+ --text:#eef5ff;
+ --muted:#b0c2db;
+ --accent:#65aaff;
+ --blue-dark:#082143;
+ --blue-mid:#174b88;
+ --blue-bright:#84c4ff;
+ --focus:#a8dcff;
+}
+body{background:linear-gradient(180deg,#08172e 0%,#0b1d35 45%,#07152b 100%);color:var(--text)}
+aside{background:#07162e;border-right:1px solid #24466e}
+.brand,.brand span{color:#9ccfff}
+aside .nav-intro{color:#90aaca}
+aside nav a.nav-primary{
+ background:transparent;
+ border:1px solid transparent;
+ color:#d1e1f7;
+ transition:background .15s,border-color .15s;
+}
+aside nav a.nav-primary:hover,
+aside nav a.nav-primary[aria-current="page"]{
+ background:#15365f;
+ border-color:#397fca;
+ color:#fff;
+ box-shadow:inset 3px 0 #7bbcff;
+}
+aside .aside-note{color:#8faaca;line-height:1.5}
+.workspace-header small{color:#88beff}
+.workspace-header h1{color:#f0f6ff;letter-spacing:-.7px}
+.workspace-header p{color:#b5c9e6}
+.panel,.card{background:#11243d;border:1px solid #284568;box-shadow:0 5px 20px rgba(0,8,28,.12)}
+#activity{border-left:4px solid #529ffb}
+button{background:#2775d5;color:#fff;border:1px solid #3e8aeb;box-shadow:none}
+button:hover:not(:disabled){background:#3388ec}
+button.secondary,button#refresh{background:#17375d;color:#e8f3ff;border:1px solid #35618e}
+button.secondary:hover:not(:disabled){background:#244b78}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{
+ outline:3px solid var(--focus);outline-offset:2px
+}
+input,select,textarea{background:#081a31;border:1px solid #3c6088;color:#f1f7ff}
+input::placeholder,textarea::placeholder{color:#99b0ce}
+#notice{background:#15395c;color:#e8f5ff}
+#notice.error{background:#57262c;color:#ffe4e4;border:1px solid #c56f7a}
+.quick-actions a{background:#122e50;border-color:#335c86;color:#e6f1ff}
+.quick-actions a:hover,.quick-actions a[aria-current="page"]{background:#1c4b81;border-color:#76b6ff}
+.current-study-banner{
+ position:sticky;top:0;z-index:4;
+ background:#12375f;
+ border:1px solid #5198df;color:#e7f3ff;
+ box-shadow:0 6px 22px rgba(0,9,28,.34)
+}
+#review-report-overview{background:#112f54;border-color:#4689d4}
+#review-report-match-status{color:#d6ebff}
+#review-report-match-results p{background:#0a2443;border-color:#3d6894;color:#c8e0ff}
+.pill{border-color:#376dba;background:#143b70;color:#d6edff}
+.workflow a{border-color:#2c5380;background:#112947;color:#dceaff}
+.workflow a.current{background:#174e8b;border-color:#7ab8ff;color:#fff}
+#redaction-preview{background:#091c36}
+mark{background:#6c551e;color:#fff1bd}
+table th{color:#a8c5e8}
+table td{border-bottom-color:#284568}
+tbody tr:hover{background:#173555}
+.warning{color:#ffd089}.good{color:#a7ecd1}
+#dicom-review-progress{color:#a8c0df}
+#ohif-iframe,#historical-ohif-iframe{border:1px solid #346da4}
+.admin-links{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:20px}
+.admin-links a{display:block;text-decoration:none;font-weight:650;color:#e4f1ff;background:#183757;border:1px solid #38648f;border-radius:12px;padding:18px}
+.admin-links a:hover{background:#215080;border-color:#7dbdff}
+#administration .panel{max-width:950px}
+.skip-link{background:#b5ddff;color:#07152b}
+[hidden]{display:none!important}
+@media(max-width:800px){
+ .admin-links{grid-template-columns:1fr}
+ #current-study-banner{font-size:13px}
+}
