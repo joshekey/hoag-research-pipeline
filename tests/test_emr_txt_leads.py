@@ -1,6 +1,6 @@
 """Synthetic EMR name/DOS matching tests; no real patient data."""
 import unittest
-from emr_txt_leads import exam_dates, exam_terms, evaluate_emr
+from emr_txt_leads import exam_dates, exam_terms, evaluate_emr, dicom_surname, report_name_contains_surname
 from txt_candidate_discovery import clues
 
 
@@ -46,6 +46,13 @@ class EMRLeadTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertTrue(result["requires_manual_review"])
         self.assertTrue(result["cannot_approve_without_identity_and_exam_verification"])
+
+    def test_surname_overlap_is_exploratory_only(self):
+        surname=dicom_surname("DOE^JANE^M")
+        self.assertEqual(surname,("DOE",))
+        self.assertTrue(report_name_contains_surname("DOE JANE",surname))
+        self.assertFalse(report_name_contains_surname("DOES JANE",surname))
+        self.assertEqual(dicom_surname(""),())
 
     def test_name_only_cannot_match(self):
         self.assertIsNone(self.evaluate("DOE, JANE (MR # EMR777)\nNo scan title\n"))
