@@ -156,7 +156,13 @@ def create_blueprint(config):
     @bp.get(ROOT + "/studies")
     def studies():
         result = []
-        for uid in allowed_studies(config):
+        selected = request.args.get("StudyInstanceUID", "").strip()
+        if selected:
+            viewer_authorized_uid(config, selected)
+            uids = [selected]
+        else:
+            uids = allowed_studies(config)
+        for uid in uids:
             indexed = get_index(config, uid)
             result.append(qido_study(
                 uid, len({s for s, _ in indexed}), len(indexed)
