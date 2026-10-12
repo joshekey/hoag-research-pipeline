@@ -72,12 +72,35 @@ async function openOHIFStatus(study){
   if(uid===study)$('ohif-pilot-panel').hidden=!info.enabled;
  }catch(_error){$('ohif-pilot-panel').hidden=true;}
 }
+function makeStudyReviewPrimary(){
+ const main=document.querySelector('main');
+ const catalog=$('studies'), overview=$('overview'), review=$('review'), matching=$('matching');
+ if(main&&catalog&&overview&&review&&matching){
+   main.insertBefore(catalog,overview);
+   main.insertBefore(review,matching);
+ }
+}
+function updateSelectedStudyBanner(study){
+ const banner=$('current-study-banner');
+ if(!banner)return;
+ banner.replaceChildren();
+ if(!study){
+   banner.textContent='No DICOM study selected. Choose Review beside a study below.';
+   return;
+ }
+ const accession=study.accession||'No accession';
+ const modality=study.modality||'Unknown modality';
+ const label='Current DICOM study: '+accession+' | '+modality+' | '+(study.count||0)+' images. Report suggestions belong to THIS study.';
+ banner.textContent=label;
+}
 async function openStudy(value) {
  const generation=++reviewRequest;uid=value;
+ updateSelectedStudyBanner(null);
  try{const d=await api('/api/study/'+encodeURIComponent(value));if(generation!==reviewRequest)return;
  $('review-report-match-results').replaceChildren();
  $('review-report-match-status').textContent='Searching TXT and SQL reports for this selected study…';
  $('sql-candidate-list').replaceChildren();$('sql-candidate-original').value='';$('sql-candidate-summary').textContent='Select Find SQL candidates to inspect SQL-backed reports. No match is approved automatically.';
+ updateSelectedStudyBanner(d.study);
  $('review').hidden=false;$('review-title').textContent=(d.study.accession||'No accession')+' | '+d.study.subject;$('review-state').textContent=labels[d.study.state]||d.study.state;
  if(d.study.last_error)notice(d.study.last_error,true);
  $('original').value=d.original_report;$('sanitized').value=d.study.sanitized||'';$('masks').value=d.study.redactions||'[]';$('review-note').value=d.study.review_note||'';$('images-reviewed').checked=false;$('report-reviewed').checked=false;
@@ -381,4 +404,4 @@ async function loadHistoricalEMR(){
 }
 $('historical-emr-refresh').onclick=safely(loadHistoricalEMR);
 $('errors-refresh').onclick=safely(async()=>{const rows=await api('/api/source-errors');$('source-errors').replaceChildren();for(const row of rows)$('source-errors').append(el('p',row.path+' | '+row.kind+' | '+(JSON.parse(row.metadata).error||'Check source format, encoding and access')));if(!rows.length)$('source-errors').textContent='No source errors in the active inventory.';});
-refresh();health();setInterval(refresh,10000);setInterval(health,60000);
+makeStudyReviewPrimary();refresh();health();setInterval(refresh,10000);setInterval(health,60000);
