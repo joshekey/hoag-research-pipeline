@@ -67,6 +67,16 @@ class ClinicalOHIFPilotTests(unittest.TestCase):
         self.assertEqual(result.json[0]["00201208"]["Value"][0],2)
         self.assertEqual(result.headers["Cache-Control"],"no-store")
 
+    def test_series_qido_uses_real_modality_not_mr_constant(self):
+        indexed={(SERIES,SOPS[0]):{"metadata":json.dumps({"Modality":"CT"})},
+                 (SERIES,SOPS[1]):{"metadata":json.dumps({"Modality":"CT"})}}
+        with patch("ohif_poc.clinical_dicomweb.scoped_catalog",return_value=indexed):
+            reply=self.client.get("/ohif/dicomweb/studies/"+STUDY+"/series",
+                                  headers=self.auth)
+        self.assertEqual(reply.status_code,200)
+        self.assertEqual(reply.json[0]["00080060"]["Value"],["CT"])
+        self.assertEqual(reply.json[0]["00201209"]["Value"],[2])
+
     def test_foreign_study_denied_before_index(self):
         with patch("ohif_poc.clinical_dicomweb.scoped_catalog") as lookup:
             result=self.client.get("/ohif/dicomweb/studies/1.2.999/metadata",
