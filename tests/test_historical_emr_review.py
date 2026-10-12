@@ -30,6 +30,21 @@ class HistoricalEMRReviewTests(unittest.TestCase):
         self.auth={"Authorization":"Basic "+base64.b64encode(
             b"synthetic:safe-test-password").decode()}
 
+    def test_report_reuse_across_studies_is_rejected(self):
+        from historical_emr_review import unique_report_assignments
+        self.assertEqual(unique_report_assignments({
+            "1.2.3":[10], "1.2.4":[10]}),{})
+
+    def test_ambiguous_study_is_rejected_not_ranked(self):
+        from historical_emr_review import unique_report_assignments
+        self.assertEqual(unique_report_assignments({
+            "1.2.3":[10,11], "1.2.4":[12]}),{"1.2.4":12})
+
+    def test_distinct_study_report_pairs_remain_eligible(self):
+        from historical_emr_review import unique_report_assignments
+        self.assertEqual(unique_report_assignments({
+            "1.2.3":[10], "1.2.4":[11]}),{"1.2.3":10,"1.2.4":11})
+
     def test_conflicting_displayed_patient_name_is_blocked(self):
         report = ('DOE, JANE (MR # EMR111)\n'
                   'Patient Name - OTHER, JOHN\n'
