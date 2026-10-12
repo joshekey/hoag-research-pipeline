@@ -163,6 +163,10 @@ def scan(config):
         if anatomy:
             summary["studies_with_dicom_anatomy"]+=1
     leads={s["uid"]:[] for s in studies}
+    name_overlap_studies=set()
+    name_and_date_studies=set()
+    name_and_modality_studies=set()
+    name_and_anatomy_studies=set()
     for report in reports:
         try:
             narrative,sha=engine.read_report(config,report)
@@ -184,6 +188,20 @@ def scan(config):
             if study["uid"] not in study_clues:
                 continue
             dicom_mod,dicom_anat=study_clues[study["uid"]]
+            # Report-stage diagnostics: identify exactly where candidate filtering stops.
+            # No names, identifiers, crosswalks, or candidate lists leave this process.
+            if parsed["name"] and parsed["name"] == normalize_name(study["name"]):
+                summary["exact_name_overlap_pairs"]+=1
+                name_overlap_studies.add(study["uid"])
+                if normalize_date(study["date"]) in dates:
+                    summary["name_and_exact_dos_pairs"]+=1
+                    name_and_date_studies.add(study["uid"])
+                if dicom_mod & modalities:
+                    summary["name_and_modality_pairs"]+=1
+                    name_and_modality_studies.add(study["uid"])
+                if dicom_anat & anatomy:
+                    summary["name_and_anatomy_pairs"]+=1
+                    name_and_anatomy_studies.add(study["uid"])
             candidate=evaluate_emr(study,parsed,dates,modalities,anatomy,dicom_mod,dicom_anat)
             if candidate:
                 leads[study["uid"]].append(candidate)
@@ -195,6 +213,10 @@ def scan(config):
             summary["anatomy_only_pairs"]+=sum(a["category"]=="anatomy_only_lead" for a in options)
         else:
             summary["studies_without_leads"]+=1
+    summary["studies_with_exact_name_overlap"]=len(name_overlap_studies)
+    summary["studies_with_name_and_exact_dos"]=len(name_and_date_studies)
+    summary["studies_with_name_and_modality"]=len(name_and_modality_studies)
+    summary["studies_with_name_and_anatomy"]=len(name_and_anatomy_studies)
     return dict(summary)
 
 def main():
