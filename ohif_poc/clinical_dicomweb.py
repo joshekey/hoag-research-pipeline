@@ -16,7 +16,7 @@ from pathlib import Path
 import pydicom
 from flask import Blueprint, Response, abort, request
 from pydicom.uid import (ExplicitVRLittleEndian, ImplicitVRLittleEndian,
-                         JPEGLosslessSV1, JPEG2000Lossless)
+                         JPEGLossless, JPEGLosslessSV1, JPEG2000Lossless)
 from pydicom.encaps import generate_frames
 
 from ohif_poc.clinical_retrieval_core import instance_bytes
@@ -30,6 +30,7 @@ MAX_INSTANCE_BYTES = 128 * 1024 * 1024
 SUPPORTED_SYNTAXES = {
     str(ExplicitVRLittleEndian): "application/octet-stream",
     str(ImplicitVRLittleEndian): "application/octet-stream",
+    str(JPEGLossless): "image/jpeg",
     str(JPEGLosslessSV1): "image/jpeg",
     str(JPEG2000Lossless): "image/jp2",
 }
