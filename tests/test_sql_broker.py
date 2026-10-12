@@ -45,6 +45,25 @@ class BrokerTests(unittest.TestCase):
         self.assertTrue(result["candidates"][0]["result_date_matches"])
         self.assertNotIn("SAMPLE", str(result))
 
+    def test_rejects_report_with_two_different_patient_name_lines(self):
+        with sqlite3.connect(self.index) as db:
+            db.execute("INSERT INTO narratives VALUES (?,?,?,?)",(
+                b"3",b"PATIENT NAME: SAMPLE, PERSON MRN: TEST\n"
+                     b"Patient Name - OTHER, PERSON\n"
+                     b"FINDINGS: Synthetic only",
+                b"MRI LUMBAR",b"2021-09-02"))
+        result=sql_broker.query(self.request)
+        self.assertEqual(result["total"],1)
+
+    def test_rejects_conflicting_report_dob(self):
+        with sqlite3.connect(self.index) as db:
+            db.execute("INSERT INTO narratives VALUES (?,?,?,?)",(
+                b"4",b"PATIENT NAME: SAMPLE, PERSON MRN: TEST "
+                     b"DATE OF BIRTH: 01/01/1990 FINDINGS: Synthetic only",
+                b"MRI LUMBAR",b"2021-09-02"))
+        result=sql_broker.query(self.request)
+        self.assertEqual(result["total"],1)
+
     def test_preview_scoped_by_study(self):
         token = sql_broker.query(self.request)["candidates"][0]["token"]
         good = sql_broker.query(dict(self.request, action="preview", token=token))
