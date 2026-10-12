@@ -292,5 +292,30 @@ $('folder-open').onclick=()=>{folderRelative='.';folderOffset=0;browseFolders();
 $('folder-up').onclick=()=>{folderRelative=folderRelative.includes('/')?folderRelative.slice(0,folderRelative.lastIndexOf('/')):'.';folderOffset=0;browseFolders();};
 $('folder-more').onclick=()=>{folderOffset+=200;browseFolders(true);};$('scan-selected').onclick=()=>queue('scan',{folders:[...chosenFolders.values()]});
 
+async function loadHistoricalEMR(){
+ const panel=$('historical-emr-leads'),detail=$('historical-emr-detail');
+ panel.replaceChildren();detail.hidden=true;$('historical-emr-report').value='';
+ $('historical-emr-status').textContent='Checking verified historical study/report leads…';
+ const result=await api('/api/historical-emr/candidates');
+ $('historical-emr-status').textContent=result.count+' eligible historical candidate(s), review-only. No match confirmed.';
+ for(const lead of result.candidates){
+  const line=el('div',undefined,'card');
+  line.append(el('h4',lead.label),el('p',lead.instance_count+' historical DICOM files'),
+    el('p',lead.evidence.join(' + ')),
+    button('Inspect original EMR report',safely(async()=>{
+      detail.hidden=true;$('historical-emr-report').value='';
+      const preview=await api('/api/historical-emr/candidate/'+encodeURIComponent(lead.token));
+      $('historical-emr-title').textContent=lead.label+' — report comparison';
+      $('historical-emr-evidence').textContent='Evidence: '+preview.evidence.join(' + ')+'. Requires manual confirmation.';
+      $('historical-emr-dicom').textContent='DICOM metadata: '+preview.dicom_patient_name+
+       ' | '+preview.dicom_study_date+' | '+preview.dicom_modality+
+       ' | '+preview.dicom_instances+' indexed historical instances.';
+      $('historical-emr-report').value=preview.report_text;
+      detail.hidden=false;detail.scrollIntoView({behavior:'smooth'});
+    })));
+  panel.append(line);
+ }
+}
+$('historical-emr-refresh').onclick=safely(loadHistoricalEMR);
 $('errors-refresh').onclick=safely(async()=>{const rows=await api('/api/source-errors');$('source-errors').replaceChildren();for(const row of rows)$('source-errors').append(el('p',row.path+' | '+row.kind+' | '+(JSON.parse(row.metadata).error||'Check source format, encoding and access')));if(!rows.length)$('source-errors').textContent='No source errors in the active inventory.';});
 refresh();health();setInterval(refresh,10000);setInterval(health,60000);
