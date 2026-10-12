@@ -121,7 +121,7 @@ def eligible_pairs(config):
 def listing(config):
     leads=eligible_pairs(config)
     return {"count":len(leads),"review_only":True,"candidates":[
-        {"token":lead["token"],"label":"Historical candidate "+str(i+1),
+        {"token":lead["token"],"label":"Historical study "+lead["token"][:8].upper(),
          "instance_count":lead["instances"],
          "evidence":["exact patient name","exam / service date","modality"],
          "status":"Unconfirmed; not indexed in active review catalog"}
