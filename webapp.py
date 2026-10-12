@@ -45,9 +45,19 @@ def create_app(config):
         response.headers['X-Content-Type-Options'] = 'nosniff'
         if request.path == '/viewer' or request.path == '/app-config.js' or request.path.endswith(('.js', '.css', '.wasm', '.svg', '.woff2')):
             response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-            response.headers['Content-Security-Policy'] = ("default-src 'self' blob: data:; script-src 'self' 'wasm-unsafe-eval'; "
-                "worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; "
-                "font-src 'self' data:; connect-src 'self'; frame-ancestors 'self'")
+            # The bundled OHIF libjpeg-turbo Emscripten worker calls new Function()
+            # while decoding JPEG Lossless. Keep this relaxation restricted to
+            # OHIF viewer/assets, never the main HOAG dashboard HTML.
+            # Hashes allow only the two known inline OHIF bootstrap scripts.
+            response.headers['Content-Security-Policy'] = (
+                "default-src 'self' blob: data:; "
+                "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' "
+                "'sha256-RUJKPsAHcLA3YS8dWuPEiqEPTlkfTEHKow0zXWj7MBE=' "
+                "'sha256-YGQALmFLH0ots68+CN8MF4DamHt77VywRO0d1cRTm3Y='; "
+                "worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' blob: data:; font-src 'self' data:; "
+                "connect-src 'self'; frame-ancestors 'self'"
+            )
         else:
             response.headers['X-Frame-Options'] = 'DENY'
             response.headers['Content-Security-Policy'] = ("default-src 'self'; style-src 'self'; script-src 'self'; "
