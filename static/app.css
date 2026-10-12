@@ -168,3 +168,9 @@ tbody tr:hover{background:#173555}
 #reconcile-study-reports{margin-bottom:10px}
 #reconcile-study-reports:disabled{opacity:.55}
 @media(max-width:700px){.help-terms{grid-template-columns:1fr;gap:4px}.help-terms dd{margin-bottom:14px}}
+
+/* SQL patient selection is always verified against selected DICOM study. */
+.sql-patient-search{border:1px solid #416da0;background:#0a274a;border-radius:12px;padding:14px 16px;margin:12px 0}
+.sql-patient-search label{font-weight:700;color:#deedff}
+#sql-patient-name{display:block;width:min(100%,560px);margin-top:6px}
+.sql-patient-search p{font-size:12px;margin:8px 0 0}
