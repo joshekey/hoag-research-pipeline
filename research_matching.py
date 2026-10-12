@@ -46,6 +46,8 @@ def rank(study, info, dob='', anatomy=()):
     if sm and info['modalities'] and not sm.intersection(info['modalities']):conflicts.add('modality')
     if anatomy and info['anatomy'] and not set(anatomy).intersection(info['anatomy']):conflicts.add('anatomy')
     hits=set(result['evidence'])
+    # The same accession in a header and filename is one identifier, not two independent matches.
+    if {'accession','exact_filename_accession'}<=hits:result['score']-=60
     report_date=info.get('report_date','')
     supporting_date=bool(report_date and report_date==normalize_date(study.get('date')))
     if supporting_date:result['score']+=10

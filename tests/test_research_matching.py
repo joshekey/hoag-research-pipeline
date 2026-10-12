@@ -124,7 +124,7 @@ class ResearchMatchingTests(unittest.TestCase):
         self.assertEqual(first['rows'][0]['evidence']['result_date'],'20200103')
         with patch('research_matching.request_broker',side_effect=broker):matching.build(self.config)
         rows=matching.suggestions(self.config,self.uid)['rows']
-        self.assertEqual(rows[0]['source'],'sql')
+        selected=next(row for row in rows if row['source']=='sql')
         with patch('report_browser.request_broker',side_effect=broker):
-            preview=report_browser.preview(self.config,'sql',rows[0]['ref'])
-            self.assertEqual(preview['hash'],rows[0]['hash']);self.assertIn('Synthetic SQL report',preview['text'])
+            preview=report_browser.preview(self.config,'sql',selected['ref'])
+            self.assertEqual(preview['hash'],selected['hash']);self.assertIn('Synthetic SQL report',preview['text'])
