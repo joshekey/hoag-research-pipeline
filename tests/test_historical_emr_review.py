@@ -54,6 +54,18 @@ class HistoricalEMRReviewTests(unittest.TestCase):
         self.assertIn("preview.historical_study_ref!==lead.study_ref",js)
         self.assertIn("frame.removeAttribute('src')",js)
 
+    def test_txt_preparation_is_secondary_and_validated(self):
+        root=Path(__file__).resolve().parents[1]
+        html=(root/"templates/index.html").read_text()
+        js=(root/"static/app.js").read_text()
+        self.assertIn('id="legacy-txt-tools"',html)
+        self.assertIn('id="legacy-txt-availability"',html)
+        self.assertIn("Only for active, indexed TXT",html)
+        self.assertIn("updateLegacyTXTAvailability(d.candidates.length)",js)
+        self.assertIn("Number.isSafeInteger(reportID)",js)
+        self.assertIn("if(d.study.report_id)",js)
+        self.assertIn("SQL and historical report candidates cannot be prepared",html)
+
     def test_help_and_sql_patient_search_are_exposed(self):
         root=Path(__file__).resolve().parents[1]
         html=(root/"templates/index.html").read_text()
