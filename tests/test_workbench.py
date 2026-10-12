@@ -1,4 +1,7 @@
 import unittest
+import re
+import shlex
+from pathlib import Path
 from unittest.mock import patch
 import engine
 import test_workflow as workflow
@@ -10,6 +13,19 @@ from webapp import create_app
 class WorkbenchTests(unittest.TestCase):
     setUp=workflow.WorkflowTests.setUp
     client=tabbed.TabbedWorkflowTests.client
+
+    def test_installer_includes_every_template_asset(self):
+        root=Path(__file__).resolve().parents[1]
+        html=(root/'templates/index.html').read_text(encoding='utf-8')
+        required=set(re.findall(r'(?:src|href)="/static/([^"]+)"',html))
+        shipped=set()
+        for line in (root/'install.sh').read_text().splitlines():
+            if line.startswith('install ') and line.endswith('/opt/hoag-research/static/'):
+                for argument in shlex.split(line):
+                    if argument.startswith('$ROOT/static/'):
+                        shipped.update(p.name for p in root.glob(argument.removeprefix('$ROOT/')))
+        self.assertTrue(required)
+        self.assertFalse(required-shipped, f'Installer missing assets: {required-shipped}')
 
     def test_report_only_import_preserves_studies_and_does_not_read_dicom(self):
         with database(self.config) as db:before=dict(db.execute('SELECT * FROM studies WHERE uid=?',(self.uid,)).fetchone())

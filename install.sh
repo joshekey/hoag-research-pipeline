@@ -70,7 +70,7 @@ for file in "$ROOT"/ohif_poc/*.py; do
   install -m 0644 "$file" "/opt/hoag-research/ohif_poc/$(basename "$file")"
 done
 install -m 0644 "$ROOT/templates/index.html" /opt/hoag-research/templates/index.html
-install -m 0644 "$ROOT/static/app.js" "$ROOT/static/app.css" /opt/hoag-research/static/
+install -m 0644 "$ROOT"/static/*.js "$ROOT"/static/*.css /opt/hoag-research/static/
 install -m 0755 "$ROOT/scripts/configure" /opt/hoag-research/configure
 install -m 0644 "$ROOT/hoag-dashboard.service" "$ROOT/hoag-worker.service" "$ROOT/hoag-mount.service" /etc/systemd/system/
 install -m 0644 "$ROOT/hoag-sql.service" /etc/systemd/system/
