@@ -30,6 +30,8 @@ def request(config, index, data):
             if not row: raise ValueError('Select an indexed SQL dump')
             row=dict(row)
         if current.get('state')=='running': raise ValueError('SQL rebuild already running')
+        if Path(row['root']).resolve() not in [Path(root).resolve() for root in config['source_roots']]:
+            raise ValueError('SQL source is outside configured shares')
         source=engine.source_path(config,row)
         current.clear();current.update(job_id=job_id,state='running')
         def rebuild():

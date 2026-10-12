@@ -40,9 +40,15 @@ def query(index, key, data):
         if not isinstance(q,str) or len(q)>120 or type(offset) is not int or offset<0 or not sort:
             raise ValueError('Invalid search parameters')
         where = "instr(lower(CAST(text AS TEXT)),lower(?))>0 OR instr(lower(CAST(procedure_name AS TEXT)),lower(?))>0"
-        count = db.execute('SELECT count(*) FROM narratives WHERE '+where,(q,q)).fetchone()[0]
+        params=(q,q)
+        if not q:
+            where='1=1';params=()
+        elif db.execute("SELECT 1 FROM sqlite_master WHERE name='narrative_search'").fetchone():
+            where='rowid IN (SELECT rowid FROM narrative_search WHERE narrative_search MATCH ?)'
+            params=('"'+q.replace('"','""')+'"',)
+        count = db.execute('SELECT count(*) FROM narratives WHERE '+where,params).fetchone()[0]
         rows=[]
-        for rid,narrative,procedure,date in db.execute('SELECT report_id,text,procedure_name,result_date FROM narratives WHERE '+where+' ORDER BY '+sort+',report_id LIMIT 100 OFFSET ?',(q,q,offset)):
+        for rid,narrative,procedure,date in db.execute('SELECT report_id,text,procedure_name,result_date FROM narratives WHERE '+where+' ORDER BY '+sort+',report_id LIMIT 100 OFFSET ?',(*params,offset)):
             header=extract_header(narrative)
             rows.append({'source':'sql','ref':token(rid,narrative,procedure,date),'path':text(procedure) or 'SQL report',
                          'name':header.get('name',''),'date':text(date)})

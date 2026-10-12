@@ -122,6 +122,17 @@ def build(sql_path, output_path, callback=None, independent=False):
                 patient_ref=(SELECT patient_ref FROM encounters WHERE encounters.encounter_id=narratives.encounter_id),
                 encounter_date=(SELECT encounter_date FROM encounters WHERE encounters.encounter_id=narratives.encounter_id),
                 procedure_name=(SELECT item_name FROM procedures WHERE procedures.item_id=narratives.item_id)""")
+            if independent:
+                from sql_dicom_pilot import text
+                db.execute("CREATE VIRTUAL TABLE narrative_search USING fts5(text,procedure_name)")
+                last=0
+                while True:
+                    rows=db.execute('SELECT rowid,text,procedure_name FROM narratives WHERE rowid>? ORDER BY rowid LIMIT 100',(last,)).fetchall()
+                    if not rows: break
+                    db.executemany('INSERT INTO narrative_search(rowid,text,procedure_name) VALUES (?,?,?)',[(r[0],text(r[1]),text(r[2])) for r in rows])
+                    last=rows[-1][0]
+                    if callback: callback(count)
+                db.execute('CREATE INDEX narrative_date ON narratives(result_date,report_id)')
             # Fail closed on missing critical relationships. Do not consider these study matches.
             missing = db.execute("""SELECT count(*) FROM narratives WHERE encounter_id IS NULL
                 OR patient_ref IS NULL OR item_id IS NULL""").fetchone()[0]

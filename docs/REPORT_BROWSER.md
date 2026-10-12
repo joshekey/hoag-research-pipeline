@@ -3,7 +3,8 @@
 The blue Reports tab opens even before selecting a study. Search all indexed TXT
 and SQL reports, filter by source, sort, and page through 100 records per source.
 Leave the search blank to browse all records. TXT searches use literal word/phrase
-matching in the full-text index; SQL searches use case-insensitive text substrings.
+matching in the full-text index. Rebuilt SQL indexes also use full-text search; older
+SQL indexes use substring search until rebuilt.
 An unavailable SQL service or index is shown as an error, never as zero reports.
 
 Opening a DICOM study suggests its family name in the search field. Change or clear
