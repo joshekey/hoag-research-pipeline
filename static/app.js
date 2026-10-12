@@ -122,11 +122,13 @@ function updateSelectedStudyBanner(study){
 async function openStudy(value) {
  const generation=++reviewRequest;uid=value;
  updateSelectedStudyBanner(null);
+ $('sql-patient-name').value='';
  try{const d=await api('/api/study/'+encodeURIComponent(value));if(generation!==reviewRequest)return;
  $('review-report-match-results').replaceChildren();
  $('review-report-match-status').textContent='Searching TXT and SQL reports for this selected study…';
  $('sql-candidate-list').replaceChildren();$('sql-candidate-original').value='';$('sql-candidate-summary').textContent='Select Find SQL candidates to inspect SQL-backed reports. No match is approved automatically.';
  updateSelectedStudyBanner(d.study);
+ $('sql-patient-name').value=d.study.name||'';
  window.location.hash='#review';
  showWorkspaceScreen();
  $('review').hidden=false;$('review-title').textContent=(d.study.accession||'No accession')+' | '+d.study.subject;$('review-state').textContent=labels[d.study.state]||d.study.state;
@@ -191,7 +193,9 @@ async function loadSQLDraft(){
 async function loadSQLCandidates() {
  const study=uid;
  if(!study)return;
- const data=await api('/api/study/'+encodeURIComponent(study)+'/sql-candidates');
+ const confirmedName=$('sql-patient-name').value.trim();
+ if(!confirmedName)throw Error('Enter the patient name from the selected DICOM study before SQL search.');
+ const data=await api('/api/study/'+encodeURIComponent(study)+'/sql-candidates?patient_name='+encodeURIComponent(confirmedName));
  if(study!==uid)return 0;
  $('sql-draft-text').value='';
  $('sql-draft-status').textContent='';
