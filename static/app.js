@@ -5,7 +5,7 @@ let uid = null, offset = 0, total = 0, imageURL = null, latest = null, zoom = 1;
 let refreshing = false, listing = 0, imageRequest = 0, reviewRequest = 0, foldersInitialized = false;
 let dicomSeries = new Map(), dicomFrames = new Map(), inspectedFrames = new Set();
 const states = ['unmatched','candidate','ambiguous','conflict','review','approved','exported','needs_review'];
-const labels = {unmatched:'No report match',candidate:'One candidate',ambiguous:'Multiple candidates',conflict:'Identity conflict',review:'Ready for review',approved:'Approved',exported:'Exported',needs_review:'Needs rescan / review'};
+const labels = {unmatched:'No indexed TXT match · SQL not checked',candidate:'One candidate',ambiguous:'Multiple candidates',conflict:'Identity conflict',review:'Ready for review',approved:'Approved',exported:'Exported',needs_review:'Needs rescan / review'};
 function el(tag, text, cls) { const n = document.createElement(tag); if(text !== undefined)n.textContent = text; if(cls)n.className = cls; return n; }
 function button(text, action, secondary = true) { const b = el('button',text,secondary?'secondary':''); b.type='button'; b.onclick=action; return b; }
 function notice(text,error=false) { $('notice').textContent=text; $('notice').className=error?'error':''; }
@@ -72,7 +72,7 @@ async function openOHIFStatus(study){
   if(uid===study)$('ohif-pilot-panel').hidden=!info.enabled;
  }catch(_error){$('ohif-pilot-panel').hidden=true;}
 }
-const WORKSPACE_SCREENS=new Set(['overview','studies','review','matching','packages','administration','source-settings','jobs','historical-emr-review','database']);
+const WORKSPACE_SCREENS=new Set(['overview','studies','review','matching','packages','administration','source-settings','jobs','historical-emr-review','database','help']);
 function showWorkspaceScreen(){
  const requested=(window.location.hash||'#studies').slice(1);
  const screen=WORKSPACE_SCREENS.has(requested)?requested:'studies';
@@ -134,26 +134,50 @@ async function openStudy(value) {
  $('original').value=d.original_report;$('sanitized').value=d.study.sanitized||'';$('masks').value=d.study.redactions||'[]';$('review-note').value=d.study.review_note||'';$('images-reviewed').checked=false;$('report-reviewed').checked=false;
  $('report-choice').replaceChildren();d.candidates.forEach(addReport);if(d.study.report_id)$('report-choice').value=d.study.report_id;
  setupDicomSeries(d.images);
- const txtCount=d.candidates.length;
- const resultBox=$('review-report-match-results');
- resultBox.replaceChildren();
- resultBox.append(el('p',txtCount?txtCount+' indexed TXT report candidate(s). Check the Report candidates selector below.':'No indexed TXT report candidates for this study.'));
- void (async()=>{
-   try{
-     const sqlTotal=await loadSQLCandidates();
-     if(generation!==reviewRequest||uid!==value)return;
-     resultBox.append(el('p',sqlTotal?sqlTotal+' SQL report candidate(s). See ranked SQL candidates below.':'No SQL report candidates found for this study.'));
-     $('review-report-match-status').textContent='Report lookup completed for the selected DICOM study. Nothing has been associated or approved.';
-   }catch(_error){
-     if(generation!==reviewRequest||uid!==value)return;
-     resultBox.append(el('p','SQL report lookup unavailable. Use Find SQL candidates to retry.'));
-     $('review-report-match-status').textContent='TXT candidates loaded; SQL lookup could not be completed.';
-   }
- })();
+ void reconcileStudyReports(d, value, generation);
  void openOHIFStatus(value);
  highlight();$('review').scrollIntoView({behavior:'smooth'});if(!d.original_report&&d.candidates.length)await candidateText();if(d.images.length)await viewImage();
  }catch(e){notice(e.message,true);}
 }
+let reconcileSerial=0;
+async function reconcileStudyReports(detail, study, generation){
+ const serial=++reconcileSerial;
+ const isCurrent=()=>generation===reviewRequest&&uid===study&&serial===reconcileSerial;
+ const status=$('review-report-match-status'),box=$('review-report-match-results');
+ const refreshButton=$('reconcile-study-reports');
+ if(!isCurrent())return;
+ box.replaceChildren();
+ const txtCount=detail.candidates.length;
+ box.append(el('p',txtCount
+  ? txtCount+' indexed TXT candidate(s); verify each in the TXT selector.'
+  : 'No indexed TXT report candidate. SQL search is independent.'));
+ status.textContent='Reconciliation in progress: checking SQL broker for this selected study…';
+ refreshButton.disabled=true;
+ try{
+   const sqlTotal=await loadSQLCandidates();
+   if(!isCurrent())return;
+   box.append(el('p',sqlTotal
+    ? sqlTotal+' SQL candidate(s) available — NOT an approved study/report match. See details below.'
+    : 'SQL broker search completed: no SQL candidates found.'));
+   status.textContent=txtCount||sqlTotal
+    ? 'Candidate reports found. Verify patient identity, exam date, modality and anatomy before association.'
+    : 'TXT and SQL searches completed. No candidates found in these two sources.';
+ }catch(_error){
+   if(!isCurrent())return;
+   box.append(el('p','SQL lookup unavailable or failed; SQL matching status is UNKNOWN, not zero.'));
+   status.textContent='TXT search completed; SQL lookup could not be verified. Retry reconciliation.';
+ }finally{
+   if(isCurrent())refreshButton.disabled=false;
+ }
+}
+$('reconcile-study-reports').onclick=safely(async()=>{
+ const study=uid;
+ if(!study)return;
+ const generation=reviewRequest;
+ const detail=await api('/api/study/'+encodeURIComponent(study));
+ if(study!==uid||generation!==reviewRequest)return;
+ await reconcileStudyReports(detail,study,generation);
+});
 async function loadSQLDraft(){
  if(!uid)return;
  const study=uid;
@@ -176,7 +200,9 @@ async function loadSQLCandidates() {
  $('sql-candidate-format-status').textContent='';
  $('sql-candidate-list').replaceChildren();
  $('sql-candidate-summary').textContent=data.total+' name-matched candidates (showing '+data.candidates.length+'). Score is a heuristic, not a probability or approval.';
- await loadSQLDraft();
+ try{await loadSQLDraft();}catch(_error){
+   if(study===uid)$('sql-draft-status').textContent='SQL draft lookup unavailable; candidate search results remain review-only.';
+ }
  if(study!==uid)return 0;
  const labels={name:'Patient name',dob:'DOB',exam_date:'Examination date',exam_type:'Modality and anatomy'};
  data.candidates.forEach((item,i)=>{
