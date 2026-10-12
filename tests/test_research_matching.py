@@ -2,6 +2,8 @@ import json
 import unittest
 import sys
 import types
+import sqlite3
+from contextlib import closing
 from unittest.mock import patch
 import engine
 import research_matching as matching
@@ -12,6 +14,7 @@ from store import database,enqueue,Cancelled
 from worker import process_one
 import local_sources
 import mount_service
+import sql_browse
 
 
 class ResearchMatchingTests(unittest.TestCase):
@@ -106,3 +109,22 @@ class ResearchMatchingTests(unittest.TestCase):
         rows=list(local_sources.inputs(str(self.sources[1]),str(sql)))
         self.assertEqual([r[0] for r in rows],['txt','sql'])
         with self.assertRaises(ValueError):list(local_sources.inputs('relative/path',''))
+
+    def test_real_sql_evidence_pages_and_preview_tokens_feed_matching(self):
+        index=self.root/'synthetic-index.sqlite'
+        narrative=b'Patient: Synthetic Person\nAccession: ACC_TEST_123\nDate: 01/02/2020\nFindings: Synthetic SQL report'
+        with closing(sqlite3.connect(index)) as db:
+            db.execute('CREATE TABLE narratives(report_id BLOB PRIMARY KEY,text BLOB,procedure_name BLOB,result_date BLOB)')
+            db.executemany('INSERT INTO narratives VALUES(?,?,?,?)',[(str(i).encode(),narrative,b'CT chest',b'20200103') for i in range(102)])
+            db.commit()
+        def broker(body):return sql_browse.query(index,b'synthetic-key',body)
+        first=broker({'action':'match_catalog','after':''});second=broker({'action':'match_catalog','after':first['next_after']})
+        self.assertEqual(len(first['rows']),100);self.assertEqual(len(second['rows']),2)
+        self.assertEqual(first['rows'][0]['evidence']['report_date'],'20200102')
+        self.assertEqual(first['rows'][0]['evidence']['result_date'],'20200103')
+        with patch('research_matching.request_broker',side_effect=broker):matching.build(self.config)
+        rows=matching.suggestions(self.config,self.uid)['rows']
+        self.assertEqual(rows[0]['source'],'sql')
+        with patch('report_browser.request_broker',side_effect=broker):
+            preview=report_browser.preview(self.config,'sql',rows[0]['ref'])
+            self.assertEqual(preview['hash'],rows[0]['hash']);self.assertIn('Synthetic SQL report',preview['text'])
