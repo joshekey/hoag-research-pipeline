@@ -36,6 +36,9 @@ def process_one(config):
                 progress(config,job['id'],result.get('progress',0),'Reading SQL dump; old index remains available','SQL reindex')
                 # Broker callback observes cancellation before publishing the index.
                 time.sleep(1)
+        elif job['kind'] == 'suggest_reports':
+            from research_matching import build
+            build(config,job['id'])
         elif job['kind'] == 'match':
             engine.match(config, job['id'])
         elif job['kind'] == 'validate_export':
@@ -71,6 +74,9 @@ def process_one(config):
                 raise ValueError(f'{failures} of {len(targets)} studies failed; successful studies retained, inspect remaining study reviews')
         else:
             raise ValueError('Unknown job')
+        if job['kind'] in ('scan','reindex','reindex_sql','match'):
+            from research_matching import build
+            build(config,job['id'])
         with database(config) as db:
             db.execute("UPDATE jobs SET state='completed',finished=?,message='Completed' WHERE id=?", (time.time(), job['id']))
     except Cancelled:
@@ -95,5 +101,10 @@ def run(config):
     with database(config) as db:
         db.execute("UPDATE jobs SET state='failed',message='Interrupted by restart; requeue explicitly',finished=? WHERE state='running'", (time.time(),))
     while True:
+        if config.get('config_path'):
+            from store import load_config
+            fresh=load_config(config['config_path'])
+            config['source_roots']=fresh['source_roots']
+            config['local_source_roots']=fresh.get('local_source_roots',[])
         if not process_one(config):
             time.sleep(2)

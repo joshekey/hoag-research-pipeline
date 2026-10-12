@@ -46,9 +46,14 @@ def checked_root(config, path, output=False):
     root = Path(path).resolve(strict=True)
     if not root.is_dir():
         raise ValueError('Configured root is not a directory')
-    if config.get('require_mounts', True) and not os.path.ismount(root):
+    local=not output and str(root) in config.get('local_source_roots',[])
+    if local:
+        managed=Path('/var/lib/hoag-research/local-input')
+        if Path(path).is_symlink() or not root.is_relative_to(managed) or root.stat().st_uid!=0 or root.stat().st_mode & 0o022:
+            raise ValueError('Protected local source has invalid ownership or permissions')
+    if not local and config.get('require_mounts', True) and not os.path.ismount(root):
         raise ValueError('Configured share is not mounted; refusing to use the local mountpoint')
-    if config.get('require_mounts', True) and hasattr(os, 'statvfs'):
+    if not local and config.get('require_mounts', True) and hasattr(os, 'statvfs'):
         readonly = bool(os.statvfs(root).f_flag & os.ST_RDONLY)
         if not output and not readonly:
             raise ValueError('Source share is not mounted read-only')
@@ -70,6 +75,8 @@ def source_path(config, row):
     if path.is_symlink() or not path.resolve(strict=True).is_relative_to(root):
         raise ValueError('Source path escaped its configured root')
     stat = path.stat()
+    if str(root) in config.get('local_source_roots',[]) and (stat.st_uid!=0 or stat.st_mode & 0o022):
+        raise ValueError('Local report source is no longer protected')
     if (stat.st_size, stat.st_mtime_ns) != (row['size'], row['mtime']):
         raise ValueError('Source changed; rescan and review again')
     return path
@@ -120,19 +127,19 @@ def selected_path(root, relative):
 
 
 def selection(config, folders=None):
-    roots = [checked_root(config, r) for r in config['source_roots']]
+    roots = [Path(r).resolve() for r in config['source_roots']]
     for i, root in enumerate(roots):
         if any(root == other or root.is_relative_to(other) or other.is_relative_to(root) for other in roots[:i]):
             raise ValueError('Source roots overlap')
     if folders is None:
-        return [(root, root) for root in roots]
+        return [(checked_root(config,root), root) for root in roots]
     if not isinstance(folders, list) or not 1 <= len(folders) <= 1000:
         raise ValueError('Select between 1 and 1000 folders')
     chosen = []
     for folder in folders:
         if not isinstance(folder, dict) or type(folder.get('root')) is not int or not 0 <= folder['root'] < len(roots):
             raise ValueError('Invalid source share selection')
-        root = roots[folder['root']]
+        root = checked_root(config,roots[folder['root']])
         path = selected_path(root, folder.get('relative', '.'))
         if any(path == other or path.is_relative_to(other) for _, other in chosen):
             continue
@@ -154,6 +161,7 @@ def browse_folders(config, root_index, relative='.', offset=0):
 def scan(config, job=None, folders=None, force=False):
     with database(config) as db:
         db.execute("UPDATE settings SET value='0' WHERE key='scan_complete'")
+        db.execute("INSERT OR REPLACE INTO settings VALUES ('suggestions_ready','0')")
         db.execute("UPDATE studies SET state='needs_review', approved_fingerprint=NULL, approved_hash=NULL")
     progress(config, job, 0, 'Discovering files; study catalog builds in the next phase', 'Scanning files')
     scopes = selection(config, folders)

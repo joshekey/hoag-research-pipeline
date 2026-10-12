@@ -140,6 +140,11 @@ def create_app(config):
 
     @app.get('/api/status')
     def status():
+        if config.get('config_path'):
+            from store import load_config
+            fresh=load_config(config['config_path'])
+            config['source_roots']=fresh['source_roots']
+            config['local_source_roots']=fresh.get('local_source_roots',[])
         with database(config) as db:
             counts = [dict(r) for r in db.execute('SELECT kind,status,count(*) count,sum(size) bytes FROM files WHERE active=1 GROUP BY kind,status')]
             states = [dict(r) for r in db.execute('SELECT state,count(*) count FROM studies GROUP BY state')]
@@ -193,7 +198,7 @@ def create_app(config):
         results = []
         for index, path in enumerate([*config['source_roots'], config['output_root']]):
             output = index == len(config['source_roots'])
-            item = {'slot': ['bulk', 'imaging', 'output'][index], 'path': path, 'output': output}
+            item = {'slot': 'output' if output else ('SQL database' if path=='/mnt/hoag-database' else 'TXT / bulk' if index==0 else 'DICOM imaging' if index==1 else 'Local report source '+str(index-1)), 'path': path, 'output': output}
             try:
                 root = engine.checked_root(config, path, output=output)
                 usage = shutil.disk_usage(root)
@@ -242,6 +247,30 @@ def create_app(config):
     def folders():
         return jsonify(engine.browse_folders(config, int(request.args.get('root', 0)),
                                              request.args.get('relative', '.'), int(request.args.get('offset', 0))))
+
+    @app.get('/api/study/<uid>/suggestions')
+    def study_suggestions(uid):
+        from research_matching import suggestions
+        return jsonify(suggestions(config,uid))
+
+    @app.get('/api/research-queue')
+    def research_queue():
+        offset=max(0,int(request.args.get('offset',0)))
+        bucket=request.args.get('bucket','')
+        if bucket not in ('','strong','review','differences','no suggestions'):raise ValueError('Invalid queue filter')
+        join=" FROM studies d LEFT JOIN study_suggestions s ON s.uid=d.uid AND s.position=0 AND s.fingerprint=d.fingerprint WHERE d.report_id IS NULL"
+        params=[]
+        filtered=join
+        if bucket:
+            filtered+=" AND COALESCE(json_extract(s.ranking,'$.bucket'),'no suggestions')=?";params.append(bucket)
+        with database(config) as db:
+            ready=db.execute("SELECT value FROM settings WHERE key='suggestions_ready'").fetchone()
+            if db.execute("SELECT 1 FROM jobs WHERE state IN ('queued','running') AND kind IN ('scan','reindex','reindex_sql','suggest_reports','match') LIMIT 1").fetchone():ready=None
+            total=db.execute('SELECT count(*)'+filtered,params).fetchone()[0]
+            rows=[dict(r) for r in db.execute("SELECT d.uid,d.name,d.accession,d.date,d.modality,d.state,json_extract(s.ranking,'$.bucket') bucket"+filtered+" ORDER BY CASE json_extract(s.ranking,'$.bucket') WHEN 'strong' THEN 0 WHEN 'review' THEN 1 WHEN 'differences' THEN 2 ELSE 3 END,d.date DESC,d.uid LIMIT 100 OFFSET ?",params+[offset])]
+            counts=[dict(r) for r in db.execute("SELECT COALESCE(json_extract(s.ranking,'$.bucket'),'no suggestions') bucket,count(*) count"+join+" GROUP BY bucket")]
+        ready=bool(ready and ready[0]=='1')
+        return jsonify(ready=ready,rows=rows if ready else [],counts=counts if ready else [],total=total if ready else 0)
 
     @app.post('/api/report-browser/search')
     def browser_search():

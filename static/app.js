@@ -9,7 +9,13 @@ const labels = {unmatched:'No indexed TXT match · SQL not checked',candidate:'O
 function el(tag, text, cls) { const n = document.createElement(tag); if(text !== undefined)n.textContent = text; if(cls)n.className = cls; return n; }
 function button(text, action, secondary = true) { const b = el('button',text,secondary?'secondary':''); b.type='button'; b.onclick=action; return b; }
 function notice(text,error=false) { $('notice').textContent=text; $('notice').className=error?'error':''; }
-async function api(path,body) { const res=await fetch(path,body?{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(body)}:{}); const data=await res.json(); if(!res.ok)throw Error(data.error||'Request failed');return data; }
+async function api(path,body) {
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),path==='/api/mount'?130000:90000);
+ try{const options=body?{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(body)}:{};options.signal=controller.signal;
+ const res=await fetch(path,options),data=await res.json();if(!res.ok)throw Error(data.error||'Request failed');return data;
+ }catch(error){if(error.name==='AbortError')throw Error('Request timed out. Check Processing jobs and source connections before retrying; the server action may still be running.');throw error;}finally{clearTimeout(timer);}
+}
+
 function safely(fn) { return async()=>{try{await fn();}catch(e){notice(e.message,true);}}; }
 function cell(row,text,cls) { const c=el('td',text??'',cls); row.append(c); return c; }
 function bytes(n) { if(n==null)return 'Not measured';const units=['B','KiB','MiB','GiB','TiB'];let i=0;while(n>=1024&&i<4){n/=1024;i++;}return n.toFixed(i?1:0)+' '+units[i]; }
@@ -24,21 +30,21 @@ async function refresh() {
   $('cards').replaceChildren();
   for(const [label,value] of [['DICOM files',s.counts.filter(x=>x.kind==='dicom'&&x.status==='ok').reduce((n,x)=>n+x.count,0)],['Text reports',s.counts.filter(x=>x.kind==='report'&&x.status==='ok').reduce((n,x)=>n+x.count,0)],['Studies',s.states.reduce((n,x)=>n+x.count,0)],['Approved',stateCount('approved')]]) {const c=el('div',undefined,'card');c.append(el('strong',value.toLocaleString()),el('span',label));$('cards').append(c);}
   $('sources').replaceChildren(...[...s.sources.map(x=>'Source: '+x),'Output: '+s.output].map(p=>el('p',p)));
-  if(!$('folder-root').options.length)s.sources.forEach((path,index)=>{const o=el('option',path);o.value=index;$('folder-root').append(o);});
+  if($('folder-root').options.length!==s.sources.length){const current=$('folder-root').value;$('folder-root').replaceChildren();s.sources.forEach((path,index)=>{const o=el('option',path);o.value=index;$('folder-root').append(o);});$('folder-root').value=current||'0';}
   if(!foldersInitialized){foldersInitialized=true;try{const saved=JSON.parse(s.settings.scan_folders||'null');if(Array.isArray(saved))for(const folder of saved)chosenFolders.set(folderKey(folder.root,folder.relative),folder);renderSelected();}catch(e){notice('Previous folder selection could not be restored.',true);}}
   const currentModality=$('filter-modality').value;
   $('filter-modality').replaceChildren(el('option','All modalities'));$('filter-modality').firstChild.value='';
   s.modalities.forEach(value=>{const o=el('option',value||'Unknown');o.value=value;$('filter-modality').append(o);});$('filter-modality').value=currentModality;
   renderActivity();renderJobs();renderQueues();renderExports();renderSQL(s.sql);
   for(const id of ['scan','scan-selected','match','prepare-batch','export-batch','prepare','approve','export','mount-submit'])$(id).disabled=active()||(id==='scan-selected'&&!chosenFolders.size)||(id==='prepare'&&!$('report-choice').value);
-  $('release-version').textContent='v'+s.version;updateExportSelection();
+  $('release-version').textContent='v'+s.version;updateExportSelection();updateResearchProgress();
   const savedSQL=$('reindex-sql-file').value;$('reindex-sql-file').replaceChildren(el('option','Select SQL dump'));$('reindex-sql-file').firstChild.value='';
   for(const item of s.sql||[]){const o=el('option',item.path);o.value=item.id;$('reindex-sql-file').append(o);}$('reindex-sql-file').value=savedSQL;
   $('reindex-catalog').disabled=active();$('reindex-sql').disabled=active();
-  $('browser-associate').disabled=active()||!uid||!selectedStudy||selectedStudy.uid!==uid||!browserSelection||!$('browser-confirm').checked;
+  $('browser-associate').disabled=active()||associationBusy||!uid||!selectedStudy||selectedStudy.uid!==uid||!browserSelection||!$('browser-confirm').checked;
   await list();
   await finishPreparation();
- } catch(e){notice(e.message,true);}finally{refreshing=false;}
+ } catch(e){notice(e.message,true);$('workspace-operation').textContent='CONNECTION PROBLEM · '+e.message+' · Refresh or check dashboard service status.';}finally{refreshing=false;}
 }
 function renderActivity() {
  const j=latest.jobs.find(x=>['queued','running'].includes(x.state));const ready=latest.settings.scan_complete==='1';
@@ -129,7 +135,7 @@ async function openStudy(value, target='#studies') {
  $('review-report-match-status').textContent='Searching TXT and SQL reports for this selected study…';
  $('sql-candidate-list').replaceChildren();$('sql-candidate-original').value='';$('sql-candidate-summary').textContent='Select Find SQL candidates to inspect SQL-backed reports. No match is approved automatically.';
  selectedStudy=d.study;updateSelectedStudyBanner(d.study);
- $('browser-query').value=(d.study.name||'').split('^')[0].split(',')[0];browserOffset=0;void browseReports().catch(e=>notice(e.message,true));
+ void loadSuggestions();$('browser-query').value=(d.study.name||'').split('^')[0].split(',')[0];browserOffset=0;void browseReports().catch(e=>notice(e.message,true));
  $('sql-patient-name').value=d.study.name||'';
  window.location.hash=target;
  showWorkspaceScreen();
@@ -348,7 +354,7 @@ async function viewImage() {
  }
 }
 function masks() {const value=JSON.parse($('masks').value);if(!Array.isArray(value)||value.some(r=>!Array.isArray(r)||r.length!==4||r.some(v=>!Number.isInteger(v)||v<0)||r[2]===0||r[3]===0))throw Error('Masks must be [[x,y,width,height]] with positive sizes');return value;}
-function drawMasks() {const canvas=$('mask-canvas'),image=$('image');if(!image.naturalWidth)return;canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);try{for(const [x,y,w,h] of masks()){ctx.fillStyle='rgba(255,90,90,.4)';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#ff7777';ctx.lineWidth=Math.max(1,canvas.width/350);ctx.strokeRect(x,y,w,h);}}catch(e){notice(e.message,true);} }
+function drawMasks() {const canvas=$('mask-canvas'),image=$('image');if(!image.naturalWidth)return;canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);try{for(const [x,y,w,h] of masks()){ctx.fillStyle='rgba(255,90,90,.4)';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#ff7777';ctx.lineWidth=Math.max(1,canvas.width/350);ctx.strokeRect(x,y,w,h);}}catch(e){$('health').replaceChildren(el('p','Connection checks failed: '+e.message+'. Last connection results cannot be treated as current.','warning'));notice(e.message,true);} }
 function applyZoom() {const stage=$('image-stage');stage.style.width=(zoom*100)+'%';$('zoom-value').textContent=Math.round(zoom*100)+'%';}
 let dragStart=null;
 function point(event) {const c=$('mask-canvas'),r=c.getBoundingClientRect();return [Math.max(0,Math.min(c.width,Math.round((event.clientX-r.left)*c.width/r.width))),Math.max(0,Math.min(c.height,Math.round((event.clientY-r.top)*c.height/r.height)))];}
@@ -362,8 +368,8 @@ function renderSQL(files) {
  const opened=new Set([...$('sql').querySelectorAll('details[open]')].map(n=>n.dataset.key));$('sql').replaceChildren();if(!files.length){$('sql').textContent='No SQL dumps found in the selected folders.';return;}const search=$('schema-search').value.toLowerCase();
  for(const file of files){const metadata=JSON.parse(file.metadata),block=el('div',undefined,'schema-block');block.append(el('h3',file.path),el('p','Detected format: '+metadata.possible_type));const b=button('Inspect table and column names',()=>queue('inspect_sql',{file_id:file.id}));b.disabled=active();block.append(b);if(metadata.schema){block.append(el('p',metadata.schema.method+(metadata.schema.limited?' - inspection limit reached':''),'muted'));const tables=metadata.schema.tables.filter(t=>(t.table+' '+t.columns.join(' ')).toLowerCase().includes(search));for(const table of tables){const detail=el('details');detail.dataset.key=file.id+':'+table.table;detail.open=!!search||opened.has(detail.dataset.key);detail.append(el('summary',table.table+' ('+table.columns.length+' columns)'));const columns=el('div',undefined,'schema-columns');for(const column of table.columns)columns.append(el('span',column,table.potential_link_fields.includes(column)?'field useful':'field'));detail.append(columns);block.append(detail);}if(!tables.length)block.append(el('p','No matching supported table definitions found in the inspected portion.'));}else block.append(el('p','Inspect this dump to discover potential accession, study UID, report or file path fields.','muted'));$('sql').append(block);}
 }
-$('mount-form').onsubmit=async event=>{event.preventDefault();if(active()){notice('Wait for the current job before changing mounts.',true);return;}const body={slot:$('mount-slot').value,unc:$('mount-unc').value,username:$('mount-user').value,domain:$('mount-domain').value,password:$('mount-password').value,confirm:$('mount-confirm').checked};$('mount-password').value='';$('mount-submit').disabled=true;notice('Connecting share. Please wait; existing connections may be reconnected.');try{const result=await api('/api/mount',body);notice(result.message);$('mount-confirm').checked=false;await health();await refresh();}catch(e){notice(e.message,true);}finally{body.password='';$('mount-submit').disabled=active();}};
-$('health-refresh').onclick=health;$('refresh').onclick=()=>{refresh();health();};$('scan').onclick=()=>queue('scan');$('match').onclick=()=>queue('match');
+$('mount-form').onsubmit=async event=>{event.preventDefault();if(active()){notice('Wait for the current job before changing mounts.',true);return;}const body={slot:$('mount-slot').value,unc:$('mount-unc').value,username:$('mount-user').value,domain:$('mount-domain').value,password:$('mount-password').value,confirm:$('mount-confirm').checked};$('mount-password').value='';$('mount-submit').disabled=true;notice('Connecting share. Please wait; existing connections may be reconnected.');try{const result=await api('/api/mount',body);notice(result.message);$('mount-confirm').checked=false;await refresh();await health();}catch(e){notice(e.message,true);}finally{body.password='';$('mount-submit').disabled=active();}};
+$('health-refresh').onclick=health;$('refresh').onclick=()=>{refresh();health();};$('scan').onclick=()=>queue('scan');$('match').onclick=()=>queue('suggest_reports');
 for(const id of ['search','filter-state','filter-modality','filter-from','filter-to','filter-sort','filter-direction'])$(id).onchange=safely(()=>{offset=0;return list();});
 $('filter-clear').onclick=safely(()=>{for(const id of ['search','filter-state','filter-modality','filter-from','filter-to'])$(id).value='';offset=0;return list();});
 $('previous').onclick=safely(()=>{offset=Math.max(0,offset-100);return list();});$('next').onclick=safely(()=>{offset+=100;return list();});$('page-number').onchange=safely(()=>{const page=Number($('page-number').value);offset=(Math.max(1,Math.min(Math.ceil(total/100)||1,Math.floor(page)||1))-1)*100;return list();});
@@ -495,7 +501,7 @@ $('historical-emr-refresh').onclick=safely(loadHistoricalEMR);
 $('errors-refresh').onclick=safely(async()=>{const rows=await api('/api/source-errors');$('source-errors').replaceChildren();for(const row of rows)$('source-errors').append(el('p',row.path+' | '+row.kind+' | '+(JSON.parse(row.metadata).error||'Check source format, encoding and access')));if(!rows.length)$('source-errors').textContent='No source errors in the active inventory.';});
 let selectedStudy=null,txtSerial=0,txtOffset=0,txtTotal=0,txtSelected=null,preparedJob=null;
 function clearActiveStudy(){
- clearBrowserPreview();$('browser-note').value='';selectedStudy=null;txtSelected=null;txtOffset=0;++txtSerial;++imageRequest;++reconcileSerial;
+ clearSuggestions();clearBrowserPreview();$('browser-note').value='';selectedStudy=null;txtSelected=null;txtOffset=0;++txtSerial;++imageRequest;++reconcileSerial;
  if(imageURL){URL.revokeObjectURL(imageURL);imageURL=null;}
  $('image').removeAttribute('src');$('mask-canvas').width=0;
  $('ohif-iframe').removeAttribute('src');$('ohif-host').hidden=true;$('ohif-pilot-panel').hidden=true;
@@ -597,4 +603,4 @@ function updateExportSelection(){
  $('export-selected-study').disabled=!s||!['approved','exported'].includes(s.state)||active();
 }
 
-setupReportBrowser();setupWorkflowPanels();makeStudyReviewPrimary();showWorkspaceScreen();refresh();health();setInterval(refresh,10000);setInterval(health,60000);
+setupResearchWorkspace();setupReportBrowser();setupWorkflowPanels();makeStudyReviewPrimary();showWorkspaceScreen();refresh();health();loadResearchQueue();setInterval(refresh,10000);setInterval(health,60000);

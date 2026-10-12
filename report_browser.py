@@ -4,7 +4,7 @@ import time
 import engine
 from store import database, idle, audit, token
 from sql_gui_candidates import request_broker
-from strict_identity_match import extract_header
+from research_matching import evidence
 
 
 def search(config, body):
@@ -42,7 +42,7 @@ def preview(config, source, ref):
     if not row: raise ValueError('Report unavailable')
     value,hash_value=engine.read_report(config,row)
     if hash_value!=json.loads(row['metadata'])['hash']: raise ValueError('Report changed; reindex')
-    return {'source':'txt','ref':str(row['id']),'text':value,'hash':hash_value,'identity':extract_header(value.encode()),'path':row['path']}
+    return {'source':'txt','ref':str(row['id']),'text':value,'hash':hash_value,'identity':evidence(value,str(row['path'])),'path':row['path']}
 
 
 def associate(config, uid, body, actor):

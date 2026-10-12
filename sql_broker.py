@@ -46,7 +46,7 @@ def query(data):
     if isinstance(data, dict) and data.get('action') in ('reindex_start','reindex_status'):
         from sql_reindex import request
         return request(load_config(), INDEX, data)
-    if isinstance(data, dict) and data.get('action') in ('browse','browse_preview'):
+    if isinstance(data, dict) and data.get('action') in ('browse','browse_preview','match_catalog'):
         from sql_browse import query as browse
         require_index()
         return browse(INDEX, secret(), data)

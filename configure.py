@@ -96,10 +96,11 @@ def main():
         save(config)
         subprocess.run(['systemctl', 'restart', 'hoag-dashboard'], check=True)
         return
-    print('Configure two read-only sources and a separate writable output share.')
+    print('Configure up to three read-only sources and a separate writable output share.')
     print('Leave UNC blank to retain mounts already managed by hospital IT.')
-    for label, mount in [('Bulk source', '/mnt/hoag-bulk'), ('Imaging source', '/mnt/hoag-imaging'), ('Research output', '/mnt/hoag-output')]:
+    for label, mount in [('Bulk source', '/mnt/hoag-bulk'), ('Imaging source', '/mnt/hoag-imaging'), ('SQL database source (optional)', '/mnt/hoag-database'), ('Research output', '/mnt/hoag-output')]:
         mount_share(label, mount, writable=label == 'Research output')
+        if mount=='/mnt/hoag-database' and os.path.ismount(mount) and mount not in config['source_roots']:config['source_roots'].append(mount)
     config['report_encoding'] = value('TXT encoding (utf-8-sig, cp1252, utf-16)', config['report_encoding'])
     if config['report_encoding'] not in ('utf-8-sig', 'cp1252', 'utf-16'):
         raise ValueError('Unsupported report encoding')

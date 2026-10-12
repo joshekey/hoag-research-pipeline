@@ -55,6 +55,16 @@ def initialize(config):
           last_error TEXT NOT NULL DEFAULT '',
           state TEXT NOT NULL DEFAULT 'unmatched', review_note TEXT,
           approved_fingerprint TEXT, approved_hash TEXT);
+        CREATE TABLE IF NOT EXISTS match_reports (
+          id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NULL,
+          path TEXT NOT NULL, hash TEXT NOT NULL, evidence TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS match_report_keys (
+          key TEXT NOT NULL, report INTEGER NOT NULL, PRIMARY KEY(key,report));
+        CREATE TABLE IF NOT EXISTS study_suggestions (
+          uid TEXT NOT NULL, report INTEGER NOT NULL, fingerprint TEXT NOT NULL,
+          position INTEGER NOT NULL, ranking TEXT NOT NULL, run TEXT NOT NULL,
+          PRIMARY KEY(uid,report));
+        CREATE INDEX IF NOT EXISTS suggestions_study ON study_suggestions(uid,position);
         CREATE TABLE IF NOT EXISTS browser_associations (
           uid TEXT PRIMARY KEY, report_id INTEGER NOT NULL, fingerprint TEXT NOT NULL,
           report_hash TEXT NOT NULL, actor TEXT NOT NULL, at REAL NOT NULL, note TEXT NOT NULL);
@@ -109,7 +119,7 @@ def audit(db, actor, action, target=''):
 
 
 def enqueue(config, kind, payload=None, actor='admin'):
-    if kind not in ('scan', 'match', 'prepare', 'prepare_candidates', 'export', 'export_approved', 'inspect_sql', 'validate_export', 'reindex', 'reindex_sql'):
+    if kind not in ('scan', 'match', 'prepare', 'prepare_candidates', 'export', 'export_approved', 'inspect_sql', 'validate_export', 'reindex', 'reindex_sql', 'suggest_reports'):
         raise ValueError('Unknown job type')
     with database(config) as db:
         db.execute('BEGIN IMMEDIATE')
