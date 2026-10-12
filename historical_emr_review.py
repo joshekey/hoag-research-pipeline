@@ -21,9 +21,15 @@ GATE = Path("/etc/hoag-research/historical-emr-review.enabled")
 
 
 def permitted():
-    if GATE.is_symlink() or not GATE.is_file() or GATE.stat().st_size > 32:
+    """Fail closed when the historical review gate is absent or unreadable."""
+    try:
+        if GATE.is_symlink() or not GATE.is_file() or GATE.stat().st_size > 32:
+            return False
+        return GATE.read_text().strip() == "AUTHORIZED"
+    except OSError:
+        # Includes PermissionError when unprivileged synthetic tests cannot
+        # traverse the protected /etc/hoag-research directory.
         return False
-    return GATE.read_text().strip() == "AUTHORIZED"
 
 
 def checked_report_identity(report_text, expected_dicom_name):
