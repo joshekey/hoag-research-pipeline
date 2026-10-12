@@ -40,8 +40,8 @@ class EMRLeadTests(unittest.TestCase):
         self.assertEqual(candidate["category"],"anatomy_only_lead")
 
     def test_different_identifier_namespace_not_proof_of_identity(self):
-        text=("DOE, JANE (MR # EMR777)\\nDate of Service: 10/01/2026\\n"
-              "MRI CERVICAL SPINE\\n")
+        text=("DOE, JANE (MR # EMR777)\nDate of Service: 10/01/2026\n"
+              "MRI CERVICAL SPINE\n")
         result=self.evaluate(text)
         self.assertIsNotNone(result)
         self.assertTrue(result["requires_manual_review"])
