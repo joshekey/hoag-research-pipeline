@@ -18,7 +18,7 @@ import sql_gui_candidates
 import sql_association
 import sql_prepare_review
 from report_format import format_report
-from ohif_poc.clinical_dicomweb import create_blueprint as ohif_blueprint, authorized_uid
+from ohif_poc.clinical_dicomweb import create_blueprint as ohif_blueprint, viewer_authorized_uid, authorized_uid
 from store import audit, database, enqueue, initialize, token
 
 
@@ -71,7 +71,7 @@ def create_app(config):
 
     @app.get('/viewer')
     def ohif_viewer():
-        authorized_uid(config, request.args.get('StudyInstanceUIDs', ''))
+        viewer_authorized_uid(config, request.args.get('StudyInstanceUIDs', ''))
         if not (OHIF_ASSETS / 'index.html').is_file():
             abort(404)
         return send_from_directory(OHIF_ASSETS, 'index.html')
