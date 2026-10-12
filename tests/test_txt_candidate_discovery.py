@@ -16,6 +16,38 @@ class TXTDiscoveryTests(unittest.TestCase):
         obj.update(update)
         return obj
 
+    def test_printed_results_header_parenthesized_mrn_and_accession(self):
+        narrative=(
+            "--- Page 1 ---\n"
+            "DOE, JANE (MR # MR12345) Admission Date: 10/01/2026, Discharge Date: 10/02/2026\n"
+            "Results MRI Cervical Spine wo Contrast (IMG275) (Accession CV123456) (Order 10001)\n"
+            "MRI CERVICAL SPINE WITHOUT CONTRAST\n"
+            "Narrative\nCLINICAL HISTORY: Neck pain.\n"
+            "Signed by X 10/03/2026 12:00\n"
+            "DOE, JANE (MR # MR12345) Printed by STAFF at 10/05/2026\n"
+        )
+        result=clues(narrative,"147360")
+        self.assertEqual(result["name"],"DOE JANE")
+        self.assertEqual(result["patient_id"],"MR12345")
+        self.assertEqual(result["accession"],"CV123456")
+        self.assertIn("MR",result["modalities"])
+        self.assertIn("CERVICAL",result["anatomy"])
+        self.assertEqual(result["exam_date"],"")
+
+    def test_printed_report_name_alone_does_not_qualify(self):
+        report=clues("DOE, JANE (MR # MR12345)\nMRI CERVICAL SPINE\n")
+        assessment=evaluate(self.study(name="DOE^JANE",patient="DIFFERENT"),
+                            report,study_anatomy={"CERVICAL"})
+        self.assertEqual(assessment["confidence"],"insufficient")
+        self.assertIn("patient_id",assessment["conflicts"])
+
+    def test_printed_header_never_uses_result_or_signature_date_as_exam(self):
+        report=clues("DOE, JANE (MR # MR12345) Admission Date: 10/01/2026\n"
+                     "Results MRI Cervical Spine (Accession CV123456)\n"
+                     "Signed by X 10/03/2026\n")
+        self.assertEqual(report["exam_date"],"")
+        self.assertEqual(report["dob"],"")
+
     def test_exact_accession_name_dob_and_exam_date(self):
         r=clues("Accession: A10045\nPatient Name: Jane Smith\nMRN: MR123\n"
                 "DOB: 01/02/1980\nExam Date: 10/01/2026\nCT LUMBAR SPINE")
