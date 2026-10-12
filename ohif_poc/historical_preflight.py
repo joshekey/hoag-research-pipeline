@@ -53,6 +53,7 @@ def check(config):
     if len(selected)!=2 or any(len(v)!=1 for v in selected.values()):
         raise ValueError("STOP: expected exactly two unique validated historical leads")
     counts=Counter(studies=len(selected))
+    syntax_counts=Counter()
     for row in rows:
         meta=json.loads(row["metadata"])
         if meta.get("StudyInstanceUID") not in selected:
@@ -70,6 +71,7 @@ def check(config):
                 counts["multiframe"]+=1
             elif str(ds.file_meta.TransferSyntaxUID) not in SUPPORTED_SYNTAXES:
                 counts["unsupported_transfer_syntax"]+=1
+                syntax_counts[str(ds.file_meta.TransferSyntaxUID.name)]+=1
             else:
                 counts["compatible_instances"]+=1
         except (OSError,ValueError,AttributeError,pydicom.errors.InvalidDicomError):
@@ -85,6 +87,7 @@ def check(config):
         "invalid_headers":counts["invalid_headers"],
         "multiframe":counts["multiframe"],
         "unsupported_transfer_syntax":counts["unsupported_transfer_syntax"],
+        "unsupported_syntax_names_and_counts":dict(sorted(syntax_counts.items())),
     },sort_keys=True,indent=2))
     print("No patient information, UIDs, filenames, source paths, or image data displayed.")
     if counts["instances_total"]!=348 or counts["compatible_instances"]!=348:
