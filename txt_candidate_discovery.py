@@ -32,6 +32,21 @@ ANATOMY = (("LUMBAR",r"\bLUMBAR\b"),("CERVICAL",r"\bCERVICAL\b"),
            ("PELVIS",r"\bPELVIS\b"),("KNEE",r"\bKNEE\b"),
            ("SHOULDER",r"\bSHOULDER\b"))
 
+# Printed-results / multi-page layout. Restrict name extraction to a line
+# beginning with a plausible patient name immediately followed by (MR # ...).
+# Do not guess a name from the clinical narrative or footer print attribution.
+PRINTED_HEADER = re.compile(
+    r"(?im)^[ \t]*([A-Z][A-Z ,.'^\-]{3,90}?)"
+    r"[ \t]*\([ \t]*MR[ \t]*#[ \t]*([A-Z0-9._-]{3,64})[ \t]*[)\]}]"
+)
+PAREN_ACCESSION = re.compile(
+    r"(?i)\([ \t]*Accession[ \t]*(?:#|:)?[ \t]*([A-Z0-9._-]{2,64})[ \t]*[)\]}]"
+)
+
+def printed_header(text):
+    match = PRINTED_HEADER.search(text[:12000])
+    return (match.group(1).strip(), match.group(2).strip()) if match else ("", "")
+
 def capture(pattern, text):
     m = pattern.search(text[:20000])
     return m.group(1).strip() if m else ""
@@ -41,10 +56,11 @@ def clean_id(value):
 
 def clues(text, filename_stem=""):
     header = text[:20000]
+    printed_name, printed_mrn = printed_header(header)
     return {
-        "accession": clean_id(capture(ACCESSION,header)),
-        "patient_id": clean_id(capture(PATIENT_ID,header)),
-        "name": normalize_name(capture(NAME,header)),
+        "accession": clean_id(capture(ACCESSION,header) or capture(PAREN_ACCESSION,header)),
+        "patient_id": clean_id(capture(PATIENT_ID,header) or printed_mrn),
+        "name": normalize_name(capture(NAME,header) or printed_name),
         "dob": normalize_date(capture(DOB,header)),
         "exam_date": normalize_date(capture(EXAM_DATE,header)),
         "study_uid": capture(STUDY_UID,header),
