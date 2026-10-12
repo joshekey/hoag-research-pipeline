@@ -54,13 +54,37 @@ def capture(pattern, text):
 def clean_id(value):
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
 
+# Capture all explicit patient-name statements, including EMR's "Patient Name -". 
+# Conflicting declarations invalidate name-based study/report discovery.
+PATIENT_NAME_LINES = re.compile(
+    r"(?im)^[ \\t]*(?:patient[ \\t]+name|name)[ \\t]*[:=\\-][ \\t]*([^\\r\\n]{2,120})"
+)
+
+def all_patient_names(text):
+    header=text[:20000]
+    names=set()
+    for matched in PATIENT_NAME_LINES.finditer(header):
+        value=matched.group(1).strip()
+        value=re.split(r"[ \\t]+(?:MR[ \\t]*#|DOB|DATE[ \\t]+OF[ \\t]+BIRTH)\\b",value,1,flags=re.I)[0].strip()
+        candidate=normalize_name(value)
+        if candidate:
+            names.add(candidate)
+    for matched in PRINTED_HEADER.finditer(header):
+        candidate=normalize_name(matched.group(1))
+        if candidate:
+            names.add(candidate)
+    return names
+
+
 def clues(text, filename_stem=""):
     header = text[:20000]
     printed_name, printed_mrn = printed_header(header)
+    names=all_patient_names(header)
     return {
         "accession": clean_id(capture(ACCESSION,header) or capture(PAREN_ACCESSION,header)),
         "patient_id": clean_id(capture(PATIENT_ID,header) or printed_mrn),
-        "name": normalize_name(capture(NAME,header) or printed_name),
+        "name": next(iter(names)) if len(names)==1 else "",
+        "name_conflict": len(names)>1,
         "dob": normalize_date(capture(DOB,header)),
         "exam_date": normalize_date(capture(EXAM_DATE,header)),
         "study_uid": capture(STUDY_UID,header),
