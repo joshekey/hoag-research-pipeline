@@ -1,8 +1,9 @@
 # HOAG Research Pipeline
 
-Release **1.2.0** adds the blue, left-to-right **Sources → Images → Reports →
-Anonymize & review → Export** workflow. See [the workflow guide](docs/TABBED_WORKFLOW.md).
-The SQL identity safety hold remains enabled; SQL reports are not eligible for export.
+Release **1.3.0** adds unrestricted authenticated TXT/SQL report browsing,
+explicit manual association, SQL de-identification/export integration, and GUI
+reindex controls. The blue **Sources → Images → Reports → Anonymize & review →
+Export** workflow remains. See [report browsing and reindexing](docs/REPORT_BROWSER.md).
 This standalone repository is the authoritative full application.
 The `dcmsys/research_pipeline` discovery pilot must not be installed over it: both use
 the same application directory and dashboard service. `pipeline.py` remains only for
@@ -34,8 +35,8 @@ line-ending changes in earlier clones are preserved:
 
 ```bash
 cd ~
-git clone https://github.com/joshekey/hoag-research-pipeline.git hoag-research-pipeline-v1.2.0
-cd hoag-research-pipeline-v1.2.0
+git clone https://github.com/joshekey/hoag-research-pipeline.git hoag-research-pipeline-v1.3.0
+cd hoag-research-pipeline-v1.3.0
 if sudo test -f /etc/hoag-research/config.json; then
   sudo bash research_build --no-configure
 else
@@ -65,11 +66,11 @@ Verify the installed release and services:
 
 ```bash
 sudo -u hoag-indexer /opt/hoag-research/venv/bin/python /opt/hoag-research/manage.py version
-sudo systemctl --no-pager --full status hoag-dashboard hoag-worker hoag-mount nginx
+sudo systemctl --no-pager --full status hoag-dashboard hoag-worker hoag-mount hoag-sql nginx
 sudo -u hoag-indexer /opt/hoag-research/venv/bin/python /opt/hoag-research/manage.py doctor
 ```
 
-The version command should print `1.2.0`. If doctor reports unavailable mounts, connect
+The version command should print `1.3.0`. If doctor reports unavailable mounts, connect
 them in **Sources & mounts**, then rerun doctor and scan the selected folders. Refresh
 the GUI with Ctrl+Shift+R. No successful doctor check is implied by installation alone.
 

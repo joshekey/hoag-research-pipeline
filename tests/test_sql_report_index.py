@@ -59,6 +59,14 @@ class ReportIndexTests(unittest.TestCase):
             build(self.source, self.output)
         self.assertFalse(self.output.exists())
 
+    def test_independent_browser_keeps_unlinked_nonradiology_heading_narrative(self):
+        self.write_source()
+        raw=self.source.read_text().replace('FINDINGS:', 'HISTORY:').replace('IMPRESSION:', 'CONCLUSION:')
+        raw='\n'.join(line for line in raw.splitlines() if 'INSERT INTO `enc`' not in line)
+        self.source.write_text(raw)
+        totals,_=build(self.source,self.output,independent=True)
+        self.assertEqual(totals['narratives'],1)
+
     def test_refuse_overwrite(self):
         self.write_source()
         self.output.write_bytes(b"existing")

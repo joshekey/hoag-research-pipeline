@@ -55,6 +55,9 @@ def initialize(config):
           last_error TEXT NOT NULL DEFAULT '',
           state TEXT NOT NULL DEFAULT 'unmatched', review_note TEXT,
           approved_fingerprint TEXT, approved_hash TEXT);
+        CREATE TABLE IF NOT EXISTS browser_associations (
+          uid TEXT PRIMARY KEY, report_id INTEGER NOT NULL, fingerprint TEXT NOT NULL,
+          report_hash TEXT NOT NULL, actor TEXT NOT NULL, at REAL NOT NULL, note TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS candidates (
           study TEXT REFERENCES studies(uid) ON DELETE CASCADE,
           report INTEGER REFERENCES files(id), reason TEXT,
@@ -106,7 +109,7 @@ def audit(db, actor, action, target=''):
 
 
 def enqueue(config, kind, payload=None, actor='admin'):
-    if kind not in ('scan', 'match', 'prepare', 'prepare_candidates', 'export', 'export_approved', 'inspect_sql', 'validate_export'):
+    if kind not in ('scan', 'match', 'prepare', 'prepare_candidates', 'export', 'export_approved', 'inspect_sql', 'validate_export', 'reindex', 'reindex_sql'):
         raise ValueError('Unknown job type')
     with database(config) as db:
         db.execute('BEGIN IMMEDIATE')

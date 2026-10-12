@@ -88,6 +88,12 @@ def file_digest(path):
 
 
 def read_report(config, row):
+    if row['kind'] == 'sql_report':
+        from report_browser import preview
+        result=preview(config, 'sql', json.loads(row['metadata'])['sql_ref'])
+        if len(result['text'].encode()) > config['max_report_bytes']:
+            raise ValueError('SQL report exceeds configured report size limit')
+        return result['text'],result['hash']
     path = source_path(config, row)
     if path.stat().st_size > config['max_report_bytes']:
         raise ValueError('Report exceeds configured size limit')
@@ -145,7 +151,7 @@ def browse_folders(config, root_index, relative='.', offset=0):
             'children': [{'name': p.name, 'relative': p.relative_to(root).as_posix()} for p in children[offset:offset + 200]]}
 
 
-def scan(config, job=None, folders=None):
+def scan(config, job=None, folders=None, force=False):
     with database(config) as db:
         db.execute("UPDATE settings SET value='0' WHERE key='scan_complete'")
         db.execute("UPDATE studies SET state='needs_review', approved_fingerprint=NULL, approved_hash=NULL")
@@ -157,7 +163,7 @@ def scan(config, job=None, folders=None):
     parser_key = '3:' + config['report_encoding']
     with database(config) as db:
         previous_parser = db.execute("SELECT value FROM settings WHERE key='scan_parser'").fetchone()
-    reuse = previous_parser is not None and previous_parser[0] == parser_key
+    reuse = not force and previous_parser is not None and previous_parser[0] == parser_key
     pending = []
     report_texts = {}
 
@@ -407,12 +413,13 @@ def sanitize_report(text, identifiers, nlp=None):
 def prepare(config, uid, report_id, job=None, nlp=None):
     # Check explicit report identity against the source DICOM before de-identification.
     from txt_review import preview
-    if not preview(config, uid, report_id)['preview_allowed']:
+    from report_browser import authorized
+    if not authorized(config,uid,report_id) and not preview(config, uid, report_id)['preview_allowed']:
         raise ValueError('Conflicting report identity/examination; preparation blocked')
     with database(config) as db:
         require_scan(db)
         study = db.execute('SELECT * FROM studies WHERE uid=?', (uid,)).fetchone()
-        report = db.execute("SELECT * FROM files WHERE id=? AND kind='report' AND active=1 AND status='ok'", (report_id,)).fetchone()
+        report = db.execute("SELECT * FROM files WHERE id=? AND kind IN ('report','sql_report') AND active=1 AND status='ok'", (report_id,)).fetchone()
         if not study or not report or study['state'] == 'conflict':
             raise ValueError('Study or report unavailable / conflicting study identity')
         instances = db.execute("SELECT * FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=?", (uid,)).fetchall()
@@ -423,6 +430,9 @@ def prepare(config, uid, report_id, job=None, nlp=None):
     text, report_hash = read_report(config, report)
     if report_hash != json.loads(report['metadata'])['hash']:
         raise ValueError('Report content changed; rescan')
+    if report['kind']=='sql_report':
+        from report_format import format_report
+        text,_=format_report(text)
     clean = sanitize_report(text, identifiers, nlp)
     hashes = {}
     for count, row in enumerate(instances, 1):

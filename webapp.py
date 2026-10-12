@@ -212,7 +212,7 @@ def create_app(config):
     @app.get('/api/report/<int:file_id>')
     def report_text(file_id):
         with database(config) as db:
-            row = db.execute("SELECT * FROM files WHERE id=? AND kind='report' AND status='ok' AND active=1", (file_id,)).fetchone()
+            row = db.execute("SELECT * FROM files WHERE id=? AND kind IN ('report','sql_report') AND status='ok' AND active=1", (file_id,)).fetchone()
         if not row:
             abort(404)
         return jsonify(text=engine.read_report(config, row)[0], path=row['path'])
@@ -242,6 +242,22 @@ def create_app(config):
     def folders():
         return jsonify(engine.browse_folders(config, int(request.args.get('root', 0)),
                                              request.args.get('relative', '.'), int(request.args.get('offset', 0))))
+
+    @app.post('/api/report-browser/search')
+    def browser_search():
+        from report_browser import search
+        return jsonify(search(config,request.get_json(silent=True) or {}))
+
+    @app.post('/api/report-browser/preview')
+    def browser_preview():
+        from report_browser import preview
+        body=request.get_json(silent=True) or {}
+        return jsonify(preview(config,body.get('source'),body.get('ref')))
+
+    @app.post('/api/study/<uid>/report-association')
+    def browser_association(uid):
+        from report_browser import associate
+        return jsonify(associate(config,uid,request.get_json(silent=True) or {},config['username']))
 
     @app.get('/api/reports')
     def reports():
@@ -331,7 +347,14 @@ def create_app(config):
             candidates = [dict(r) for r in db.execute('SELECT f.id,f.path,c.reason FROM candidates c JOIN files f ON f.id=c.report WHERE c.study=?', (uid,))]
             images = [dict(r) for r in db.execute("SELECT id,metadata FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=? ORDER BY id", (uid,))]
             report = db.execute('SELECT * FROM files WHERE id=?', (study['report_id'],)).fetchone() if study['report_id'] else None
-        text = engine.read_report(config, report)[0] if report else ''
+        if report and not any(r['id']==report['id'] for r in candidates):
+            candidates.append({'id':report['id'],'path':'Associated '+report['kind']+' report','reason':'manual association'})
+        try:
+            text = engine.read_report(config, report)[0] if report else ''
+        except ValueError:
+            text=''
+            study=dict(study)
+            study['last_error']='Associated report unavailable or changed. Browse reports and associate a current record before preparation.'
         return jsonify(study=dict(study), candidates=candidates, images=images, original_report=text)
 
     @app.post('/api/jobs')

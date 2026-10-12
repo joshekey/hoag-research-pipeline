@@ -60,11 +60,11 @@ class HistoricalEMRReviewTests(unittest.TestCase):
         js=(root/"static/app.js").read_text()
         self.assertIn('id="legacy-txt-tools"',html)
         self.assertIn('id="legacy-txt-availability"',html)
-        self.assertIn("Only for active, indexed TXT",html)
+        self.assertIn("Prepare the explicitly associated TXT or SQL",html)
         self.assertIn("updateLegacyTXTAvailability(d.candidates.length)",js)
         self.assertIn("Number.isSafeInteger(reportID)",js)
         self.assertIn("if(d.study.report_id)",js)
-        self.assertIn("SQL and historical report candidates cannot be prepared",html)
+        self.assertIn("Prepare associated report",html)
 
     def test_help_and_sql_patient_search_are_exposed(self):
         root=Path(__file__).resolve().parents[1]
@@ -88,7 +88,7 @@ class HistoricalEMRReviewTests(unittest.TestCase):
         self.assertIn("window.addEventListener('hashchange',showWorkspaceScreen)",js)
         self.assertIn("window.location.hash=target",js)
         self.assertIn("updateSelectedStudyBanner(d.study)",js)
-        self.assertIn("(screen==='review'||screen==='matching')&&!uid",js)
+        self.assertIn("screen==='review'&&!uid",js)
         self.assertIn("--accent:#65aaff",css)
         self.assertIn("#review-report-overview",css)
 
@@ -100,7 +100,7 @@ class HistoricalEMRReviewTests(unittest.TestCase):
         end=js.index("async function loadSQLDraft()",start)
         review=js[start:end]
         self.assertIn("const sqlTotal=await loadSQLCandidates()",review)
-        self.assertIn("void reconcileStudyReports(d, value, generation)",review)
+        self.assertIn("void browseReports()",review)
         self.assertIn("const txtCount=detail.candidates.length",review)
         self.assertIn("generation===reviewRequest&&uid===study",review)
         self.assertIn('id="review-report-match-status"',html)

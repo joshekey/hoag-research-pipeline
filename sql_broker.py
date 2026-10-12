@@ -43,6 +43,13 @@ def report_token(key, uid, rid):
                     hashlib.sha256).hexdigest()[:32]
 
 def query(data):
+    if isinstance(data, dict) and data.get('action') in ('reindex_start','reindex_status'):
+        from sql_reindex import request
+        return request(load_config(), INDEX, data)
+    if isinstance(data, dict) and data.get('action') in ('browse','browse_preview'):
+        from sql_browse import query as browse
+        require_index()
+        return browse(INDEX, secret(), data)
     if not isinstance(data, dict) or data.get("action") not in ("list", "preview"):
         raise ValueError("Invalid request")
     if set(data) - {"action", "uid", "token"}:
