@@ -106,3 +106,5 @@ button{background:#0866c6;color:#fff}button.secondary{background:#e6f1ff;color:#
 @media(max-width:1100px){.patient-layout{grid-template-columns:1fr}.patient-summary{position:static}.patient-table{min-width:760px}}
 
 main>section#patients{max-width:1600px}.patient-summary{display:block!important}#patient-list{min-width:0}.patient-card{min-width:0}.patient-toggle:focus,.patient-toggle:active{background:#e6f1ff;color:#173e69}.patient-table tr:hover td{background:#edf5ff;color:#163857}
+
+.top-brand{display:flex;align-items:center;gap:20px}.top-brand .hoag-logo{display:block;width:88px;height:36px;flex:none;object-fit:contain}
