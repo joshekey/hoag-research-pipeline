@@ -26,6 +26,8 @@ function fixture(prefs={}){
   if(route.pathname==='/api/research-queue')return response({ready:!!prefs.suggestions,rows:[],counts:prefs.suggestions?[{bucket:'strong',count:2}]:[],total:0});
   if(route.pathname==='/api/sql-readiness')return response({dumps:[],broker:{available:false,reports:null,message:'Synthetic broker unavailable'}});
   if(route.pathname==='/api/health')return response({shares:[]});
+  if(route.pathname==='/api/patients')return response({rows:Object.values(studies).map(s=>({...s,studies:1,associated:s.report_id?1:0,approved:0,exported:0})),total:2});
+  if(route.pathname.startsWith('/api/patients/'))return response({rows:Object.values(studies).filter(s=>s.subject===route.pathname.split('/')[3]).map(s=>({...s,description:'Synthetic exam',suggestions:1,prepared:false}))});
   if(route.pathname==='/api/studies')return response({rows:Object.values(studies),total:2});
   if(route.pathname==='/api/report-browser/search'){const body=JSON.parse(options.body);if(body.q==='FAIL')return response({error:'Synthetic source failure'},false);const id=body.q==='Example'?'1.2.4':'1.2.3';return response({groups:[{source:'txt',total:1,rows:[{source:'txt',ref:id==='1.2.3'?'31':'42',path:'Synthetic report '+id,name:studies[id].name}]}],errors:[]});}
   if(route.pathname==='/api/report-browser/preview'){const body=JSON.parse(options.body);const id=body.ref==='31'||body.ref==='sql-a'?'1.2.3':'1.2.4';return response({source:body.source,ref:body.ref,hash:'synthetic-hash',text:'SYNTHETIC REPORT '+id,identity:{name:studies[id].name},...prefs.preview});}
@@ -181,3 +183,15 @@ test('Fit includes the full tall image and retains mask alignment',async()=>{
   f.$('zoom-fit').click();assert.equal(f.$('image-stage').style.height,'400px');
  }finally{f.dom.window.close();}
 });
+
+ test('patient selection is scoped and does not approve suggested reports',async()=>{
+ const f=fixture();try{
+ await settle();assert.equal(f.$('patients').hidden,false);
+ f.$('patient-list').querySelector('button').click();await settle();
+ const all=f.$('patient-examinations').querySelector('input');all.click();
+ assert.match(f.$('patient-summary').textContent,/1 selected.*0 ready.*1 held/);
+ assert.equal([...f.$('patient-summary').querySelectorAll('button')].find(b=>b.textContent.startsWith('Export')).disabled,true);
+ const second=f.$('patient-list').querySelectorAll('.patient-toggle')[1];second.click();await settle();
+ assert.match(f.$('patient-summary').textContent,/0 selected/);
+ }finally{f.dom.window.close();}
+ });

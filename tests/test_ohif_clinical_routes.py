@@ -18,6 +18,9 @@ class ClinicalOHIFPilotTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        # Collect sqlite context-manager connections before Windows removes files.
+        import gc
+        self.addCleanup(gc.collect)
         self.state=Path(self.tmp.name)
         from werkzeug.security import generate_password_hash
         self.config={
@@ -63,6 +66,16 @@ class ClinicalOHIFPilotTests(unittest.TestCase):
         self.assertNotIn("'unsafe-eval'",dashboard_csp)
         self.assertNotIn("'unsafe-inline'",dashboard_csp)
         self.assertIn("frame-ancestors 'none'",dashboard_csp)
+
+    def test_manifest_uses_credentials_without_removing_authentication(self):
+        from webapp import authenticated_viewer_html
+        for ending in ('>', '/>'):
+            source='<link rel="manifest" crossorigin="anonymous" href="/manifest.json"'+ending
+            result=authenticated_viewer_html(source)
+            self.assertIn('crossorigin="use-credentials"',result)
+            self.assertNotIn('anonymous',result)
+            self.assertEqual(result.count('crossorigin'),1)
+        self.assertEqual(self.client.get('/manifest.json').status_code,401)
 
     def test_no_authorization_denied(self):
         self.assertEqual(self.client.get("/ohif/dicomweb/studies").status_code,401)
@@ -119,7 +132,7 @@ class ClinicalOHIFPilotTests(unittest.TestCase):
         self.assertEqual(response.status_code,200)
         self.assertIn("multipart/related",response.content_type)
 
-    def test_lossless_compressed_frame_media_types(self):
+    def test_invalid_lossless_codestream_is_rejected_on_server(self):
         from pydicom.encaps import encapsulate
         from pydicom.uid import JPEGLossless, JPEGLosslessSV1, JPEG2000Lossless
         for syntax, media in ((JPEGLossless,"image/jpeg"),
@@ -139,9 +152,26 @@ class ClinicalOHIFPilotTests(unittest.TestCase):
                     reply=self.client.get("/ohif/dicomweb/studies/"+STUDY+
                           "/series/"+SERIES+"/instances/"+SOPS[0]+"/frames/1",
                           headers=self.auth)
-                self.assertEqual(reply.status_code,200)
-                self.assertIn(media,reply.content_type)
-                self.assertIn(b"FAKE_COMPRESSED_CODESTREAM",reply.data)
+                self.assertEqual(reply.status_code,415)
+
+
+    def test_lossless_jpeg2000_decodes_exact_samples(self):
+        import numpy as np
+        from PIL import Image
+        from pydicom.encaps import encapsulate
+        from pydicom.uid import JPEG2000Lossless
+        ds=deepcopy(synthetic_dataset(SOPS[0]))
+        pixels=np.arange(int(ds.Rows)*int(ds.Columns),dtype=np.uint16).reshape(int(ds.Rows),int(ds.Columns))
+        encoded=io.BytesIO();Image.fromarray(pixels).save(encoded,format='JPEG2000',no_jp2=True,irreversible=False)
+        ds.file_meta.TransferSyntaxUID=JPEG2000Lossless
+        ds.PixelData=encapsulate([encoded.getvalue()]);ds['PixelData'].is_undefined_length=True
+        out=io.BytesIO();ds.save_as(out,enforce_file_format=True)
+        with patch('ohif_poc.clinical_dicomweb.scoped_catalog',return_value={(SERIES,SOPS[0]):{'size':len(out.getvalue())}}), patch('ohif_poc.clinical_dicomweb.instance_bytes',return_value=out.getvalue()):
+            reply=self.client.get('/ohif/dicomweb/studies/'+STUDY+'/series/'+SERIES+'/instances/'+SOPS[0]+'/frames/1',headers=self.auth)
+        self.assertEqual(reply.status_code,200)
+        self.assertIn('application/octet-stream',reply.content_type)
+        actual=reply.data.split(b'\r\n\r\n',1)[1].rsplit(b'\r\n--',1)[0]
+        self.assertEqual(actual,pixels.astype('<u2').tobytes())
 
     def test_all_indexed_mode_lists_multiple_eligible_studies(self):
         import sqlite3

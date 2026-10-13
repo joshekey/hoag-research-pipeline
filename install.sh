@@ -71,6 +71,9 @@ for file in "$ROOT"/ohif_poc/*.py; do
 done
 install -m 0644 "$ROOT/templates/index.html" /opt/hoag-research/templates/index.html
 install -m 0644 "$ROOT"/static/*.js "$ROOT"/static/*.css /opt/hoag-research/static/
+if [ -f /opt/hoag-research/ohif-assets/index.html ]; then
+  install -m 0644 "$ROOT/ohif_poc/clinical_app_config_392.js" /opt/hoag-research/ohif-assets/app-config.js
+fi
 install -m 0755 "$ROOT/scripts/configure" /opt/hoag-research/configure
 install -m 0644 "$ROOT/hoag-dashboard.service" "$ROOT/hoag-worker.service" "$ROOT/hoag-mount.service" /etc/systemd/system/
 install -m 0644 "$ROOT/hoag-sql.service" /etc/systemd/system/

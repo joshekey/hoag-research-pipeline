@@ -44,6 +44,7 @@ async function refresh() {
   $('reindex-catalog').disabled=active();$('reindex-sql').disabled=active();
   $('browser-associate').disabled=active()||associationBusy||!uid||!selectedStudy||selectedStudy.uid!==uid||!browserSelection||!$('browser-confirm').checked;
   await list();
+  if(!$('patients').hidden)await loadPatients();
   await finishPreparation();
   updatePrivacyStatus();
  } catch(e){notice(e.message,true);$('workspace-operation').textContent='CONNECTION PROBLEM · '+e.message+' · Refresh or check dashboard service status.';}finally{refreshing=false;}
@@ -87,9 +88,9 @@ async function openOHIFStatus(study){
   if(uid===study&&generation===reviewRequest)$('ohif-pilot-panel').hidden=!info.enabled;
  }catch(_error){if(uid===study&&generation===reviewRequest)$('ohif-pilot-panel').hidden=true;}
 }
-const WORKSPACE_SCREENS=new Set(['overview','studies','review','matching','packages','administration','source-settings','jobs','historical-emr-review','database','help']);
+const WORKSPACE_SCREENS=new Set(['patients','overview','studies','review','matching','packages','administration','source-settings','jobs','historical-emr-review','database','help']);
 function showWorkspaceScreen(){
- const requested=(window.location.hash||'#studies').slice(1),screen=WORKSPACE_SCREENS.has(requested)?requested:'studies';
+ const requested=(window.location.hash||'#patients').slice(1),screen=WORKSPACE_SCREENS.has(requested)?requested:'studies';
  const effective=screen==='review'&&!uid?'studies':screen;
  const workbench=['studies','matching','review'].includes(effective),privacy=effective==='review';
  for(const id of WORKSPACE_SCREENS){const node=$(id);if(node)node.hidden=id!==effective;}
@@ -105,6 +106,7 @@ function showWorkspaceScreen(){
  $('next-reports').hidden=!selectedStudy||privacy;$('next-anonymize').hidden=!selectedStudy||privacy;$('next-export').hidden=!privacy;
  if(workbench&&!privacy){if(!selectedStudy&&reportTab==='suggestions')activateReportTab('search');else if(selectedStudy&&reportTab==='search'&&effective==='studies')activateReportTab('suggestions');}
  for(const a of document.querySelectorAll('#primary-navigation a')){const selected=a.getAttribute('href')==='#'+effective;a.setAttribute('aria-selected',String(selected));a.tabIndex=selected?0:-1;}
+ if(effective==='patients')loadPatients().catch(e=>notice(e.message,true));
  updateExportSelection();updatePrivacyStatus();window.scrollTo(0,0);
 }
 window.addEventListener('hashchange',showWorkspaceScreen);
@@ -634,5 +636,5 @@ function updateExportSelection(){
  $('export-selected-study').disabled=!s||!['approved','exported'].includes(s.state)||active();
 }
 
-setupResearchWorkspace();setupReportBrowser();setupWorkflowPanels();makeStudyReviewPrimary();setupWorkbench();showWorkspaceScreen();checkSQLReadiness();refresh();health();loadResearchQueue();setInterval(refresh,10000);setInterval(()=>{health();checkSQLReadiness();},60000);
+setupResearchWorkspace();setupReportBrowser();setupWorkflowPanels();makeStudyReviewPrimary();setupWorkbench();setupPatientWorklist();showWorkspaceScreen();checkSQLReadiness();refresh();health();loadResearchQueue();setInterval(refresh,10000);setInterval(()=>{health();checkSQLReadiness();},60000);
 setInterval(()=>{if(preparedJob)void refresh();},2000);

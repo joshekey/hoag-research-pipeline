@@ -16,6 +16,8 @@ from werkzeug.security import check_password_hash
 
 import engine
 import patient_identity
+import patient_worklist
+import re
 import sql_gui_candidates
 import sql_association
 import sql_prepare_review
@@ -25,6 +27,14 @@ from store import audit, database, enqueue, initialize, token
 
 
 SQL_REVIEW_GATE = Path("/etc/hoag-research/sql-candidate-review.enabled")
+
+
+def authenticated_viewer_html(source):
+    """Manifest fetches omit Basic credentials unless explicitly requested."""
+    def link(match):
+        tag=re.sub(r'\s+crossorigin(?:=["\'][^"\']*["\'])?', '', match[0], flags=re.I)
+        return re.sub(r'\s*/?>$', ' crossorigin="use-credentials">', tag)
+    return re.sub(r'<link\b(?=[^>]*\brel=["\']manifest["\'])[^>]*>',link,source,flags=re.I)
 
 
 def sql_review_permitted():
@@ -102,7 +112,9 @@ def create_app(config):
         viewer_authorized_uid(config, request.args.get('StudyInstanceUIDs', ''))
         if not (OHIF_ASSETS / 'index.html').is_file():
             abort(404)
-        return send_from_directory(OHIF_ASSETS, 'index.html')
+        source=(OHIF_ASSETS / 'index.html').read_text(encoding='utf-8')
+        source=authenticated_viewer_html(source)
+        return Response(source,content_type='text/html; charset=utf-8')
 
     @app.get('/<path:ohif_asset>')
     def ohif_static(ohif_asset):
@@ -162,10 +174,18 @@ def create_app(config):
     def download_crosswalk():
         # Existing authenticated hospital operator + CSRF protection applies.
         with database(config) as db:
-            content = patient_identity.crosswalk_csv(db)
+            content = patient_identity.crosswalk_csv(db, (request.get_json(silent=True) or {}).get('subject'))
             audit(db, config['username'], 'download-patient-crosswalk')
         return Response(content, content_type='text/csv; charset=utf-8', headers={
             'Content-Disposition': 'attachment; filename="patient-crosswalk.csv"'})
+
+    @app.get('/api/patients')
+    def patients():
+        return jsonify(patient_worklist.listing(config,request.args.get('q',''),max(0,int(request.args.get('offset',0))),request.args.get('attention')=='1'))
+
+    @app.get('/api/patients/<subject>/studies')
+    def patient_studies(subject):
+        return jsonify(rows=patient_worklist.examinations(config,subject))
 
     @app.get('/api/studies')
     def studies():
@@ -424,6 +444,8 @@ def create_app(config):
     @app.post('/api/jobs')
     def jobs():
         body = request.get_json()
+        if body['kind'] in ('prepare_patient','export_patient'):
+            patient_worklist.targets(config,body.get('payload') or {})
         return jsonify(id=enqueue(config, body['kind'], body.get('payload'), config['username']))
 
     @app.post('/api/study/<uid>/approve')

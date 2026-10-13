@@ -14,6 +14,7 @@ from collections import Counter
 from pathlib import Path
 
 import pydicom
+import numpy as np
 from flask import Blueprint, Response, abort, request
 from pydicom.uid import (ExplicitVRLittleEndian, ImplicitVRLittleEndian,
                          JPEGLossless, JPEGLosslessSV1, JPEG2000Lossless)
@@ -121,6 +122,10 @@ def metadata_for(config, uid, series, sop):
     syntax = str(ds.file_meta.TransferSyntaxUID)
     if syntax not in SUPPORTED_SYNTAXES:
         abort(415)
+    # Lossless monochrome frames are decoded on the server, avoiding browser
+    # codec-specific failures. Advertise the syntax of the delivered samples.
+    if ds.file_meta.TransferSyntaxUID.is_compressed and str(ds.get('PhotometricInterpretation','')) in ('MONOCHROME1','MONOCHROME2'):
+        syntax = str(ExplicitVRLittleEndian)
     meta["00020010"] = {"vr": "UI", "Value": [syntax]}
     meta["7FE00010"] = {
         "vr": "OW",
@@ -228,7 +233,22 @@ def create_blueprint(config):
         media = SUPPORTED_SYNTAXES.get(syntax)
         if media is None:
             abort(415)
-        if media == "application/octet-stream":
+        if ds.file_meta.TransferSyntaxUID.is_compressed and str(ds.get('PhotometricInterpretation','')) in ('MONOCHROME1','MONOCHROME2'):
+            expected = int(ds.Rows) * int(ds.Columns) * int(ds.SamplesPerPixel) * int(ds.BitsAllocated) // 8
+            if expected <= 0 or expected > MAX_PIXEL_BYTES:
+                abort(413)
+            if int(ds.BitsAllocated) not in (8,16,32) or int(ds.SamplesPerPixel) != 1:
+                abort(415)
+            try:
+                samples = ds.pixel_array
+                dtype = np.dtype(('<i' if int(ds.PixelRepresentation) else '<u') + str(int(ds.BitsAllocated)//8))
+                pixels = samples.astype(dtype,copy=False).tobytes(order='C')
+            except Exception:
+                abort(415, description='Source image could not be decoded by the server')
+            if len(pixels) != expected:
+                abort(415)
+            media = 'application/octet-stream'
+        elif media == "application/octet-stream":
             pixels = bytes(ds.PixelData)
         else:
             # Return the single original encapsulated frame. No decompression,

@@ -18,6 +18,7 @@ def process_one(config):
     try:
         checkpoint(config, job['id'])
         payload = json.loads(job['payload'])
+        completion = 'Completed'
         if job['kind'] == 'scan':
             engine.scan(config, job['id'], payload.get('folders'))
         elif job['kind'] == 'add_reports':
@@ -50,6 +51,9 @@ def process_one(config):
             engine.inspect_sql(config, int(payload['file_id']), job['id'])
         elif job['kind'] == 'prepare':
             engine.prepare(config, payload['uid'], int(payload['report_id']), job['id'])
+        elif job['kind'] in ('prepare_patient', 'export_patient'):
+            from patient_worklist import process
+            completion = process(config, job['kind'], payload, job['id'])
         elif job['kind'] == 'export':
             engine.export_study(config, payload['uid'], job['id'])
         elif job['kind'] in ('prepare_candidates', 'export_approved'):
@@ -81,7 +85,7 @@ def process_one(config):
             from research_matching import build
             build(config,job['id'])
         with database(config) as db:
-            db.execute("UPDATE jobs SET state='completed',finished=?,message='Completed' WHERE id=?", (time.time(), job['id']))
+            db.execute("UPDATE jobs SET state='completed',finished=?,message=? WHERE id=?", (time.time(), completion, job['id']))
     except Cancelled:
         with database(config) as db:
             db.execute("UPDATE jobs SET state='cancelled',finished=?,message='Cancelled at a safe boundary; partial exports remain in restricted staging' WHERE id=?", (time.time(), job['id']))

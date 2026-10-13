@@ -107,6 +107,13 @@ function setupGuidedComparison(shell,browser,canvas){
 }
 async function openNextAssociation(afterAssociation=false){
  const current=uid,generation=reviewRequest;
+ if(patientSubject&&patientStudies.some(s=>s.uid===current)){
+  await loadPatientStudies();if(current!==uid||generation!==reviewRequest)return;
+  const pending=patientStudies.filter(s=>s.uid!==current&&!s.report_id);
+  if(pending.length)await openStudy(pending[0].uid,'#matching');
+  else{location.hash='#patients';notice('All examinations for this patient have associations. Review drafts before export.');}
+  return;
+ }
  let queue=await api('/api/research-queue?offset=0&bucket='),pageOffset=0;
  if(current!==uid||generation!==reviewRequest)return;
  let index=queue.rows.findIndex(s=>s.uid===current);
@@ -201,4 +208,61 @@ function setupOperations(){
  const introHead=el('div',undefined,'operations-intro');introHead.append(el('small','OPERATIONS'),el('h2','Bring your reports into the workspace'),el('p','Connect once. Add report files. Match them to the studies you already indexed.'));
  source.prepend(introHead);
  for(const b of head.querySelectorAll('button'))b.classList.add('secondary');
+}
+
+// Patient-first worklist. Selection never changes association or approval.
+let patientPage=0,patientGeneration=0,patientDetailGeneration=0,patientSubject=null,patientStudies=[],patientSelection=new Set();
+function setupPatientWorklist(){
+ const screen=el('section');screen.id='patients';screen.className='patient-screen';
+ const heading=el('div',undefined,'patient-heading');heading.append(el('small','RESEARCH WORKSPACE'),el('h1','Patient worklist'),el('p','Choose a patient, confirm each examination, then export approved studies together.'));
+ const controls=el('div',undefined,'toolbar');const search=el('input');search.id='patient-search';search.placeholder='Search patient name, MRN or anonymous ID';search.setAttribute('aria-label','Search patients');
+ let timer;search.oninput=()=>{clearTimeout(timer);timer=setTimeout(()=>{patientPage=0;loadPatients().catch(e=>notice(e.message,true));},250);};
+ const attention=el('input');attention.type='checkbox';attention.id='patient-attention';attention.onchange=()=>{patientPage=0;loadPatients().catch(e=>notice(e.message,true));};const filter=el('label',undefined,'check');filter.append(attention,document.createTextNode(' Needs attention'));
+ controls.append(search,filter,button('Find report suggestions',safely(async()=>{await queue('suggest_reports');notice('Refreshing report suggestions across the indexed library. Each association still requires confirmation.');})));
+ const layout=el('div',undefined,'patient-layout'),list=el('div');list.id='patient-list';const summary=el('aside');summary.id='patient-summary';summary.className='patient-summary';layout.append(list,summary);
+ const paging=el('div',undefined,'toolbar');const previous=button('Previous patients',safely(async()=>{patientPage=Math.max(0,patientPage-25);await loadPatients();}));previous.id='patient-previous';const next=button('Next patients',safely(async()=>{patientPage+=25;await loadPatients();}));next.id='patient-next';const count=el('span');count.id='patient-count';paging.append(previous,count,next);
+ screen.append(heading,controls,layout,paging);$('research-workbench').before(screen);
+ const nav=el('a','Patients');nav.href='#patients';nav.setAttribute('role','tab');document.querySelector('#primary-navigation').prepend(nav);
+ const back=button('← Patient worklist',()=>{location.hash='#patients';});$('guided-context').prepend(back);
+ renderPatientSummary();
+}
+async function loadPatients(){
+ const generation=++patientGeneration;const result=await api('/api/patients?'+new URLSearchParams({q:$('patient-search').value,offset:patientPage,attention:$('patient-attention').checked?'1':'0'}));if(generation!==patientGeneration)return;
+ $('patient-list').replaceChildren();
+ for(const p of result.rows){
+  const card=el('article',undefined,'patient-card');const toggle=button((p.subject===patientSubject?'▾ ':'▸ ')+(displayPatient(p.name)||'Patient name unavailable'),safely(async()=>{if(patientSubject===p.subject){patientSubject=null;patientStudies=[];patientSelection.clear();renderPatientSummary();await loadPatients();}else await selectPatient(p.subject);}));toggle.className='patient-toggle';toggle.setAttribute('aria-expanded',String(p.subject===patientSubject));
+  card.append(toggle,el('p','MRN '+(p.patient||'Unavailable')+' · '+p.studies+' examinations · '+p.associated+' associated · '+p.approved+' approved · '+p.exported+' exported','patient-meta'));
+  if(p.subject===patientSubject){const table=el('div');table.id='patient-examinations';card.append(table);} $('patient-list').append(card);
+ }
+ if(!result.rows.length)$('patient-list').append(el('p','No patients match this search.'));
+ $('patient-count').textContent=result.total+' patients';$('patient-previous').disabled=patientPage===0;$('patient-next').disabled=patientPage+25>=result.total;
+ if(patientSubject)await loadPatientStudies();
+}
+async function selectPatient(subject){
+ if(patientSubject!==subject){patientSelection.clear();patientStudies=[];}
+ patientSubject=subject;await loadPatients();
+}
+async function loadPatientStudies(){
+ const subject=patientSubject,generation=++patientDetailGeneration;const result=await api('/api/patients/'+encodeURIComponent(subject)+'/studies');if(subject!==patientSubject||generation!==patientDetailGeneration)return;
+ patientStudies=result.rows;const known=new Set(patientStudies.map(s=>s.uid));for(const id of patientSelection)if(!known.has(id))patientSelection.delete(id);
+ renderPatientStudies();renderPatientSummary();
+}
+function renderPatientStudies(){
+ const host=$('patient-examinations');if(!host)return;host.replaceChildren();
+ const all=el('input');all.type='checkbox';all.checked=patientStudies.length>0&&patientStudies.every(s=>patientSelection.has(s.uid));all.indeterminate=patientSelection.size>0&&!all.checked;all.onchange=()=>{patientSelection=new Set(all.checked?patientStudies.map(s=>s.uid):[]);renderPatientStudies();renderPatientSummary();};const label=el('label',undefined,'check');label.append(all,document.createTextNode(' Select all '+patientStudies.length+' examinations'));host.append(label);
+ const table=el('table');table.className='patient-table';const head=el('thead'),hr=el('tr');for(const title of ['Select','Examination','Date','Report','Privacy review','Action'])hr.append(el('th',title));head.append(hr);table.append(head);const body=el('tbody');table.append(body);
+ for(const s of patientStudies){const row=el('tr');const check=el('input');check.type='checkbox';check.checked=patientSelection.has(s.uid);check.setAttribute('aria-label','Select '+s.description+' '+s.date);check.onchange=()=>{check.checked?patientSelection.add(s.uid):patientSelection.delete(s.uid);renderPatientStudies();renderPatientSummary();};cell(row,'').append(check);const exam=cell(row,s.description);exam.append(el('small',s.modality+' · '+s.count+' images','sub'));cell(row,s.date?.replace(/^(\d{4})(\d{2})(\d{2})$/,'$1-$2-$3')||'Unavailable');cell(row,s.report_id?'Associated':s.suggestions?s.suggestions+' suggestions':'Search needed',s.report_id?'patient-associated':'');cell(row,s.state==='approved'?'Approved':s.state==='exported'?'Exported':s.prepared?'Draft ready':'Not prepared');cell(row,'').append(button(s.report_id?'Review study':'Compare reports',safely(()=>openStudy(s.uid,s.report_id?'#review':'#matching'))));if(s.last_error){const err=el('small',s.last_error,'error');exam.append(err);}body.append(row);}
+ host.append(table);
+}
+function renderPatientSummary(){
+ const panel=$('patient-summary');if(!panel)return;panel.replaceChildren(el('small','PATIENT EXPORT'),el('h2','Review studies, export together'));
+ if(!patientSubject||!patientStudies.length){panel.append(el('p','Expand a patient to select examinations.'));return;}
+ const chosen=patientStudies.filter(s=>patientSelection.has(s.uid)),ready=chosen.filter(s=>s.state==='approved'),prepare=chosen.filter(s=>s.report_id&&!s.prepared&&!['approved','exported'].includes(s.state));
+ panel.append(el('h3',displayPatient(patientStudies[0].name)),el('p','Anonymous name / ID','muted'),el('code',patientSubject),el('p',chosen.length+' selected · '+ready.length+' ready · '+(chosen.length-ready.length)+' held','patient-totals'));
+ panel.append(el('p','Held studies stay out of this export. Suggestions require confirmation; every draft needs image and report review.'));
+ const run=kind=>safely(async()=>{await queue(kind,{subject:patientSubject,uids:[...patientSelection]});await loadPatients();});
+ const exportButton=button('Export '+ready.length+' approved studies',run('export_patient'),false);exportButton.disabled=!ready.length||active();
+ const prepareButton=button('Prepare '+prepare.length+' associated reports',run('prepare_patient'));prepareButton.disabled=!prepare.length||active();
+ const crosswalk=button('Download patient crosswalk',safely(async()=>{const response=await fetch('/api/exports/crosswalk',{method:'POST',headers:{'X-CSRF-Token':csrf,'Content-Type':'application/json'},body:JSON.stringify({subject:patientSubject})});if(!response.ok)throw Error('Crosswalk download failed');const url=URL.createObjectURL(await response.blob()),a=el('a');a.href=url;a.download='patient-crosswalk.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}));
+ panel.append(exportButton,prepareButton,crosswalk,el('small','Crosswalk contains identifying information and is downloaded separately.'));
 }

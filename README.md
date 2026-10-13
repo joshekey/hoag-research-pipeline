@@ -1,6 +1,25 @@
 # HOAG Research Pipeline
 
-### 1.50 guided comparison and patient crosswalk
+### 1.50 patient worklist, guided comparison and patient crosswalk
+
+The Patients tab groups examinations by the existing anonymous patient identity
+(MRN and issuer), with expandable study descriptions, report suggestions and
+privacy status. Select all or individual examinations. Bulk preparation uses only
+explicitly confirmed associations and retains existing drafts and approvals.
+Bulk export runs the existing source/fingerprint/privacy checks independently for
+each approved study; unapproved and previously exported studies are held. Study
+folders remain together under the anonymous patient directory, with a new patient
+manifest listing this batch's completed study folders. Failed studies remain
+visible in the worklist and processing job. Crosswalk downloads can be restricted
+to the selected patient. Find report suggestions refreshes the library's report
+evidence without reindexing DICOM; it never automatically associates a report.
+
+The OHIF gateway decodes supported lossless monochrome compressed frames on the
+server and returns original sample values in little-endian form. Invalid frames
+fail visibly. The viewer configuration includes a safe image-error handler, and
+manifest requests carry the existing login credentials. These changes do not
+modify source DICOM, relax authentication, or install a different OHIF version.
+
 
 The blue Guided comparison workspace uses two wide image/report panes and a
 collapsible study queue. Compare patient and examination details above the panes;

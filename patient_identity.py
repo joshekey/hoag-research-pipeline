@@ -44,7 +44,7 @@ def record_export(db, export_id, identity):
         dict(identity, export_id=export_id))
 
 
-def crosswalk_csv(db):
+def crosswalk_csv(db, subject=None):
     """One row per completed export; snapshots survive catalog replacement/deletion.
 
     Older exports have no immutable identity snapshot. Include their export IDs
@@ -60,7 +60,7 @@ def crosswalk_csv(db):
         # CSV quoting alone does not prevent spreadsheet formula execution.
         return "'" + value if value.lstrip().startswith(('=', '+', '-', '@')) or value.startswith(('\t', '\r', '\n')) else value
     for row in db.execute('''SELECT e.id,e.created,i.* FROM exports e
-                            LEFT JOIN export_identities i ON i.export_id=e.id ORDER BY e.id'''):
+                            LEFT JOIN export_identities i ON i.export_id=e.id WHERE (? IS NULL OR i.subject=?) ORDER BY e.id''', (subject,subject)):
         values = [row['id'], datetime.fromtimestamp(row['created'], timezone.utc).isoformat(),
                   row['name'], row['patient'], row['issuer'], row['subject'], row['subject'],
                   row['accession'], row['study_uid'], row['anonymous_study_uid'],
