@@ -94,6 +94,37 @@ database, change fstab, remove credentials or revert mounts for this rollback.
   bound a test run; exceeding it makes that run incomplete. Negative limits are
   rejected. Large runs still require sufficient memory and private report space.
 
+## Exact-name indexed report dry run (current report-selection policy)
+
+`batch_report_selection.py` supersedes the report-selection criterion in the
+earlier readiness analyzer. DICOM identity holds remain unchanged. It reads all
+indexed TXT report entries, not only the document crosswalk's mapped subset.
+Only active, OK entries whose current source bytes match the indexed hash can
+be selected. No source traversal/reindexing or database mutation occurs.
+
+An explicit patient-name header must match the crosswalk's complete first and
+last name, case-insensitively with whitespace normalization. Supported formats
+are FIRST [middle] LAST, LAST, FIRST [middle], and DICOM LAST^FIRST^MIDDLE.
+Middle names do not determine selection. Accents, hyphens and apostrophes remain
+significant; names are not sorted or fuzzily matched. Narrative mentions do not
+qualify. DOB, MRN and examination matching are not prerequisites.
+
+Shared first/last names, multiple or unrecognized patient-name declarations,
+contradictory crosswalk ownership, and explicit identifier conflicts stay held.
+Every explicit MRN/patient-ID declaration is checked. An identifier with no
+comparison evidence stays held as unverifiable. The existing manifest supplies
+observed identifiers, not authoritative approval of historical aliases; missing
+aliases may therefore remain held until separately verified. Inactive/error
+index entries and changed/unreadable sources remain held.
+
+Run `batch_report_selection.py --manifest <private completed manifest>` as
+hoag-indexer from `/opt/hoag-research`. Install it alongside `batch_reconcile.py`.
+Only aggregate counts/reason counts print. The new private run directory contains
+`report-selection.private.json` with path, proposed P### label, hash, and reason
+codes, but no report narratives. Selection is a dry-run proposal, not acceptance
+or release; no files are moved or redacted. DICOM patient readiness is not
+reassessed by this report-only command. Existing review/export gates remain.
+
 ## Second-pass patient readiness
 
 Install `batch_readiness.py` and `batch_root_causes.py` alongside
