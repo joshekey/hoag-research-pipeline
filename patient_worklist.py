@@ -3,7 +3,25 @@ import json
 import uuid
 from pathlib import Path
 
-from store import database, checkpoint, progress, research_uid
+from store import database, checkpoint, progress, research_uid, idle, audit
+
+
+def remove(config, subject, payload):
+    """Remove a reviewed selection from the catalog, never from source storage."""
+    with database(config) as db:
+        db.execute('BEGIN IMMEDIATE')
+        idle(db)
+        uids = [r[0] for r in db.execute('SELECT uid FROM studies WHERE subject=?',(subject,))]
+        expected = payload.get('uids')
+        if payload.get('confirm') is not True or not isinstance(expected,list) or any(not isinstance(u,str) for u in expected) or not uids or sorted(expected)!=sorted(uids):
+            raise ValueError('Patient examinations changed; reload and confirm removal again')
+        for uid in uids:
+            db.execute("UPDATE files SET active=0 WHERE kind='dicom' AND json_extract(metadata,'$.StudyInstanceUID')=?",(uid,))
+            for table in ('txt_associations','browser_associations','study_suggestions'):
+                db.execute('DELETE FROM '+table+' WHERE uid=?',(uid,))
+            db.execute('DELETE FROM studies WHERE uid=?',(uid,))
+        audit(db,config['username'],'remove-patient-from-catalog',subject)
+    return dict(removed=len(uids))
 
 
 def listing(config, query='', offset=0, attention=False):

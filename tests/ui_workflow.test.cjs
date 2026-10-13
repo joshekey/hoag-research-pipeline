@@ -22,6 +22,9 @@ function fixture(prefs={}){
  w.fetch=async(url,options)=>{
   const route=new URL(String(url),'http://synthetic.invalid/');
   if(pending.has(route.pathname)){const wait=pending.get(route.pathname);pending.delete(route.pathname);await wait;}
+  if(route.pathname==='/api/jobs'){prefs.queued=JSON.parse(options.body);return response({id:1});}
+  if(route.pathname==='/api/folders')return response({children:[{name:'Patient one',relative:'patient-one'},{name:'Patient two',relative:'patient-two'}],files:[{name:'image.dcm',supported:false},{name:'report.txt',supported:true}],file_total:2,total:2});
+  if(route.pathname.endsWith('/remove')){prefs.removal={path:route.pathname,body:JSON.parse(options.body)};return response({error:'Synthetic removal recorded'},false);}
   if(route.pathname==='/api/status')return response({version:'1.2.0',counts:[{kind:'dicom',status:'ok',count:2},{kind:'report',status:'ok',count:2}],states:[{state:'candidate',count:2}],jobs:prefs.jobs||[],settings:{scan_complete:'1',...(prefs.settings||{})},modalities:['CT'],sources:['/synthetic/images','/synthetic/reports'],output:'/synthetic/output',sql:[],exports:[],now:1});
   if(route.pathname==='/api/research-queue')return response({ready:!!prefs.suggestions,rows:[],counts:prefs.suggestions?[{bucket:'strong',count:2}]:[],total:0});
   if(route.pathname==='/api/sql-readiness')return response({dumps:[],broker:{available:false,reports:null,message:'Synthetic broker unavailable'}});
@@ -195,3 +198,30 @@ test('Fit includes the full tall image and retains mask alignment',async()=>{
  assert.match(f.$('patient-summary').textContent,/0 selected/);
  }finally{f.dom.window.close();}
  });
+
+
+test('DICOM import selects only new patient folders and clears selection after queueing',async()=>{
+ const prefs={settings:{scan_folders:JSON.stringify([{root:0,relative:'.'},{root:1,relative:'.'}])}},f=fixture(prefs);
+ try{
+  await settle();f.w.location.hash='#overview';await settle();
+  assert.equal(f.$('folder-selected').textContent,'');assert.equal(f.$('add-dicom-folders').disabled,true);
+  assert.ok(f.$('report-folder-step').contains(f.$('add-dicom-folders')));
+  assert.ok(!f.$('advanced-indexing').contains(f.$('add-dicom-folders')));
+  f.$('folder-open').click();await settle();
+  assert.match(f.$('folder-list').textContent,/Checked for DICOM/);
+  const checks=f.$('folder-list').querySelectorAll('input[type=checkbox]');checks[1].click();checks[2].click();
+  assert.equal(f.$('add-dicom-folders').disabled,false);f.$('add-dicom-folders').click();await settle();
+  assert.deepEqual(prefs.queued,{kind:'add_dicom',payload:{folders:[{root:0,relative:'patient-one'},{root:0,relative:'patient-two'}]}});
+  assert.equal(f.$('folder-selected').textContent,'');assert.equal(f.$('add-dicom-folders').disabled,true);
+ }finally{f.dom.window.close();}
+});
+
+test('patient removal requires explicit confirmation and sends only the expanded patient snapshot',async()=>{
+ const prefs={},f=fixture(prefs);try{
+  await settle();f.$('patient-list').querySelector('.patient-toggle').click();await settle();
+  assert.equal(f.$('remove-patient').disabled,true);
+  f.$('remove-patient-confirm').click();assert.equal(f.$('remove-patient').disabled,false);
+  f.$('remove-patient').click();await settle();
+  assert.deepEqual(prefs.removal,{path:'/api/patients/SUBJECT_SYNTHETIC_A/remove',body:{confirm:true,uids:['1.2.3']}});
+ }finally{f.dom.window.close();}
+});

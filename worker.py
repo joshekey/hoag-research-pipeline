@@ -21,6 +21,9 @@ def process_one(config):
         completion = 'Completed'
         if job['kind'] == 'scan':
             engine.scan(config, job['id'], payload.get('folders'))
+        elif job['kind'] == 'add_dicom':
+            if not payload.get('folders'):raise ValueError('Select DICOM and report folders to import')
+            engine.scan(config,job['id'],payload['folders'],additive=True)
         elif job['kind'] == 'add_reports':
             if not payload.get('folders'):raise ValueError('Select TXT/SQL source folders to import')
             engine.scan(config,job['id'],payload['folders'],add_reports=True)

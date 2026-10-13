@@ -2,6 +2,25 @@
 
 ### 1.50 patient worklist, guided comparison and patient crosswalk
 
+**Adding another patient's DICOM folders:** open Operations → **Add DICOM / TXT /
+SQL folders**, browse an already connected source, select one or more patient
+folders, and choose **Add DICOM + reports from selected folders**. Mixed DICOM/TXT
+folders and nested folders are supported. Only selected folders are scanned;
+existing TXT/SQL matching indexes are reused without reopening their source files
+or rebuilding SQL. Other patients stay indexed and unchanged studies keep their
+reviews. Changed images or associated reports require renewed review. The folder
+selection starts empty and clears after queueing so earlier source roots are not
+accidentally scanned again. Do not use the maintenance full-reindex action for
+routine patient additions. Connect the parent share once; select patient
+subfolders under that connection instead of replacing the mount for each patient.
+
+**Removing a patient:** expand the patient in Patients, open **Remove patient from
+DICOM list**, and explicitly confirm removal of all their examinations. This
+removes catalog entries and pending associations, never original DICOM/report
+files or completed exports. Export crosswalk records and anonymous identities
+remain. Adding the same folders again restores the patient with the same identity,
+but requires new association/review. Removal is blocked while a job is active.
+
 The Patients tab groups examinations by the existing anonymous patient identity
 (MRN and issuer), with expandable study descriptions, report suggestions and
 privacy status. Select all or individual examinations. Bulk preparation uses only

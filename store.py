@@ -60,6 +60,8 @@ def initialize(config):
           path TEXT NOT NULL, hash TEXT NOT NULL, evidence TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS match_report_keys (
           key TEXT NOT NULL, report INTEGER NOT NULL, PRIMARY KEY(key,report));
+        CREATE INDEX IF NOT EXISTS match_reports_source_ref ON match_reports(source,ref);
+        CREATE INDEX IF NOT EXISTS files_scan_run ON files(seen);
         CREATE TABLE IF NOT EXISTS study_suggestions (
           uid TEXT NOT NULL, report INTEGER NOT NULL, fingerprint TEXT NOT NULL,
           position INTEGER NOT NULL, ranking TEXT NOT NULL, run TEXT NOT NULL,
@@ -127,7 +129,7 @@ def audit(db, actor, action, target=''):
 
 
 def enqueue(config, kind, payload=None, actor='admin'):
-    if kind not in ('scan', 'match', 'prepare', 'prepare_candidates', 'export', 'export_approved', 'inspect_sql', 'validate_export', 'reindex', 'reindex_sql', 'suggest_reports', 'add_reports', 'prepare_patient', 'export_patient'):
+    if kind not in ('scan', 'match', 'prepare', 'prepare_candidates', 'export', 'export_approved', 'inspect_sql', 'validate_export', 'reindex', 'reindex_sql', 'suggest_reports', 'add_reports', 'add_dicom', 'prepare_patient', 'export_patient'):
         raise ValueError('Unknown job type')
     with database(config) as db:
         db.execute('BEGIN IMMEDIATE')

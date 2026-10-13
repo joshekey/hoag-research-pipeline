@@ -33,10 +33,10 @@ def fts_phrase(value):
     return '"' + value.replace('"', '""') + '"'
 
 
-def report_rows(db):
+def report_rows(db, scan_run=None):
     last = 0
     while True:
-        rows = db.execute("SELECT * FROM files WHERE kind='report' AND active=1 AND status='ok' AND id>? ORDER BY id LIMIT 100", (last,)).fetchall()
+        rows = db.execute("SELECT * FROM files WHERE kind='report' AND active=1 AND status='ok' AND id>? AND (? IS NULL OR seen=?) ORDER BY id LIMIT 100", (last,scan_run,scan_run)).fetchall()
         if not rows:
             return
         last = rows[-1]['id']
@@ -162,16 +162,23 @@ def browse_folders(config, root_index, relative='.', offset=0):
             'children': [{'name': p.name, 'relative': p.relative_to(root).as_posix()} for p in children[offset:offset + 200]]}
 
 
-def scan(config, job=None, folders=None, force=False, add_reports=False):
+def scan(config, job=None, folders=None, force=False, add_reports=False, additive=False):
+    affected = set()
     with database(config) as db:
         if add_reports:
             require_scan(db)
         else:
             db.execute("UPDATE settings SET value='0' WHERE key='scan_complete'")
-            db.execute("UPDATE studies SET state='needs_review', approved_fingerprint=NULL, approved_hash=NULL")
+            if not additive:
+                db.execute("UPDATE studies SET state='needs_review', approved_fingerprint=NULL, approved_hash=NULL")
         db.execute("INSERT OR REPLACE INTO settings VALUES ('suggestions_ready','0')")
     progress(config, job, 0, 'Discovering files; study catalog builds in the next phase', 'Scanning files')
     scopes = selection(config, folders)
+    if additive:
+        with database(config) as db:
+            for root, selected in scopes:
+                prefix=str(selected)+os.sep
+                affected.update(r[0] for r in db.execute("SELECT DISTINCT json_extract(metadata,'$.StudyInstanceUID') FROM files WHERE kind='dicom' AND root=? AND substr(path,1,?)=?",(str(root),len(prefix),prefix)) if r[0])
     run = str(uuid.uuid4())
     count = 0
     # A changed parser/encoding must invalidate otherwise unchanged file entries.
@@ -291,27 +298,36 @@ def scan(config, job=None, folders=None, force=False, add_reports=False):
                     progress(config, job, count, 'Scanning files; these are not study counts', 'Scanning files')
     flush()
     with database(config) as db:
-        if add_reports:
+        if add_reports or additive:
             for root,selected in scopes:
                 prefix=str(selected)+os.sep
-                db.execute("UPDATE files SET active=0 WHERE root=? AND kind IN ('report','sql') AND substr(path,1,?)=? AND (seen IS NULL OR seen<>?)",(str(root),len(prefix),prefix,run))
+                kinds = " AND kind IN ('report','sql')" if add_reports else ''
+                db.execute("UPDATE files SET active=0,seen=? WHERE root=?"+kinds+" AND substr(path,1,?)=? AND (seen IS NULL OR seen<>?)",(run,str(root),len(prefix),prefix,run))
             previous=db.execute("SELECT value FROM settings WHERE key='scan_folders'").fetchone()
             saved=json.loads(previous[0]) if previous else None
             if isinstance(saved,list):
                 combined=saved+[item for item in folders if item not in saved]
                 db.execute("INSERT OR REPLACE INTO settings VALUES ('scan_folders',?)",(json.dumps(combined),))
+            elif previous is None:
+                db.execute("INSERT OR REPLACE INTO settings VALUES ('scan_folders',?)",(json.dumps(folders),))
             db.execute("UPDATE studies SET state='needs_review',approved_hash=NULL,approved_fingerprint=NULL WHERE report_id IN (SELECT id FROM files WHERE kind='report' AND (active=0 OR json_extract(metadata,'$.hash')<>studies.report_hash))")
             db.execute("INSERT OR REPLACE INTO settings VALUES ('reports_imported',?)",(str(time.time()),))
         else:
             db.execute('UPDATE files SET active=0 WHERE seen IS NULL OR seen<>?', (run,))
             db.execute("INSERT OR REPLACE INTO settings VALUES ('scan_folders',?)", (json.dumps(folders),))
-        if not add_reports:db.execute("INSERT OR REPLACE INTO settings VALUES ('scan_parser',?)", (parser_key,))
+        if not add_reports and (not additive or previous_parser is None):db.execute("INSERT OR REPLACE INTO settings VALUES ('scan_parser',?)", (parser_key,))
+        if additive:
+            affected.update(r[0] for r in db.execute("SELECT DISTINCT json_extract(metadata,'$.StudyInstanceUID') FROM files WHERE kind='dicom' AND seen=?",(run,)) if r[0])
+            db.execute('DELETE FROM report_keys WHERE report IN (SELECT id FROM files WHERE seen=?)',(run,))
     if not add_reports:
         progress(config, job, count, 'File scan complete; building study catalog and report links', 'Building studies')
-        match(config, job, from_scan=True)
+        match(config, job, from_scan=True, preserve_unchanged=additive, scan_run=run if additive else None, affected=affected if additive else None)
         with database(config) as db:
             db.execute("UPDATE settings SET value='1' WHERE key='scan_complete'")
             db.execute("INSERT OR REPLACE INTO settings VALUES ('last_scan',?)", (str(time.time()),))
+    if additive:
+        from research_matching import add_folders
+        add_folders(config,run,job)
     progress(config,job,count,'Reports added; existing DICOM catalog retained' if add_reports else 'Scan and candidate matching completed')
 
 
@@ -338,15 +354,17 @@ def inspect_sql(config, file_id, job=None):
     progress(config, job, len(result['tables']), 'SQL schema inspected without executing SQL')
 
 
-def match(config, job=None, from_scan=False):
+def match(config, job=None, from_scan=False, preserve_unchanged=False, scan_run=None, affected=None):
     progress(config, job, 0, 'Indexing report identifiers', 'Matching reports')
     with database(config) as db:
         if not from_scan:
             require_scan(db)
-        db.execute("UPDATE studies SET state='needs_review',approved_fingerprint=NULL,approved_hash=NULL")
-        db.execute('DELETE FROM report_keys')
+        if not preserve_unchanged:
+            db.execute("UPDATE studies SET state='needs_review',approved_fingerprint=NULL,approved_hash=NULL")
+        if not preserve_unchanged:db.execute('DELETE FROM report_keys')
         db.commit()
-        for number, row in enumerate(report_rows(db), 1):
+        for number, row in enumerate(report_rows(db,scan_run), 1):
+            db.execute('DELETE FROM report_keys WHERE report=?',(row['id'],))
             meta = json.loads(row['metadata'])
             for key in meta['accessions']:
                 db.execute('INSERT OR IGNORE INTO report_keys VALUES (?,?,?)', (key, row['id'], 'Accession / filename'))
@@ -355,8 +373,9 @@ def match(config, job=None, from_scan=False):
             if number % 100 == 0:
                 db.commit()
                 progress(config, job, number, 'Indexing report identifiers', 'Matching reports')
-        db.execute('DELETE FROM candidates')
-        groups = db.execute("SELECT DISTINCT json_extract(metadata,'$.StudyInstanceUID') uid FROM files WHERE kind='dicom' AND active=1 AND status='ok'").fetchall()
+        if not preserve_unchanged:
+            db.execute('DELETE FROM candidates')
+        groups = [{'uid':uid} for uid in affected] if affected is not None else db.execute("SELECT DISTINCT json_extract(metadata,'$.StudyInstanceUID') uid FROM files WHERE kind='dicom' AND active=1 AND status='ok'").fetchall()
         db.commit()
         progress(config, job, 0, f'Building {len(groups)} studies; results appear incrementally', 'Building studies')
         count = 0
@@ -364,6 +383,9 @@ def match(config, job=None, from_scan=False):
             checkpoint(config, job)
             uid = group['uid']
             rows = [dict(r) for r in db.execute("SELECT * FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=?", (uid,))]
+            if not rows:
+                db.execute('DELETE FROM studies WHERE uid=?',(uid,))
+                continue
             metas = [json.loads(row['metadata']) for row in rows]
             first = metas[0]
             identities = {(m['PatientID'], m['IssuerOfPatientID'], m['PatientName']) for m in metas}
@@ -371,6 +393,11 @@ def match(config, job=None, from_scan=False):
             patient_key = first['IssuerOfPatientID'] + '\0' + first['PatientID'] if first['PatientID'] else uid
             subject = patient_identity.subject_for_patient(config, db, first['PatientID'], first['IssuerOfPatientID'], uid)
             fingerprint = digest(json.dumps(sorted((r['id'], r['size'], r['mtime'], r['metadata']) for r in rows)).encode())
+            previous = db.execute('SELECT fingerprint FROM studies WHERE uid=?',(uid,)).fetchone()
+            if preserve_unchanged and previous and previous['fingerprint'] == fingerprint:
+                count += 1
+                continue
+            db.execute('DELETE FROM candidates WHERE study=?',(uid,))
             state = 'conflict' if len(identities) > 1 or len(accessions) > 1 else 'unmatched'
             db.execute('''INSERT INTO studies(uid,subject,accession,patient,name,date,modality,count,size,fingerprint,state)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(uid) DO UPDATE SET
@@ -397,7 +424,8 @@ def match(config, job=None, from_scan=False):
             db.commit()
             if count % 25 == 0:
                 progress(config, job, count, f'Built {count} of {len(groups)} studies', 'Building studies')
-        db.execute("DELETE FROM studies WHERE uid NOT IN (SELECT json_extract(metadata,'$.StudyInstanceUID') FROM files WHERE kind='dicom' AND active=1 AND status='ok')")
+        if affected is None:
+            db.execute("DELETE FROM studies WHERE uid NOT IN (SELECT json_extract(metadata,'$.StudyInstanceUID') FROM files WHERE kind='dicom' AND active=1 AND status='ok')")
     progress(config, job, count, 'Candidate matches refreshed; select and review reports')
 
 

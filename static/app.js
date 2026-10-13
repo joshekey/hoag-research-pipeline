@@ -32,12 +32,12 @@ async function refresh() {
   for(const [label,value] of [['DICOM files',s.counts.filter(x=>x.kind==='dicom'&&x.status==='ok').reduce((n,x)=>n+x.count,0)],['Text reports',s.counts.filter(x=>x.kind==='report'&&x.status==='ok').reduce((n,x)=>n+x.count,0)],['Studies',s.states.reduce((n,x)=>n+x.count,0)],['Approved',stateCount('approved')]]) {const c=el('div',undefined,'card');c.append(el('strong',value.toLocaleString()),el('span',label));$('cards').append(c);}
   $('sources').replaceChildren(...[...s.sources.map(x=>'Source: '+x),'Output: '+s.output].map(p=>el('p',p)));
   if(JSON.stringify([...$('folder-root').options].map(o=>o.textContent))!==JSON.stringify(s.sources)){const current=$('folder-root').value;$('folder-root').replaceChildren();s.sources.forEach((path,index)=>{const o=el('option',path);o.value=index;$('folder-root').append(o);});$('folder-root').value=Number(current)<s.sources.length?current||'0':'0';++folderRequest;$('folder-list').replaceChildren();$('folder-location').textContent='Source list updated. Choose Browse share to see its files.';}
-  if(!foldersInitialized){foldersInitialized=true;try{const saved=JSON.parse(s.settings.scan_folders||'null');if(Array.isArray(saved))for(const folder of saved)chosenFolders.set(folderKey(folder.root,folder.relative),folder);renderSelected();}catch(e){notice('Previous folder selection could not be restored.',true);}}
+  if(!foldersInitialized){foldersInitialized=true;renderSelected();}
   const currentModality=$('filter-modality').value;
   $('filter-modality').replaceChildren(el('option','All modalities'));$('filter-modality').firstChild.value='';
   s.modalities.forEach(value=>{const o=el('option',value||'Unknown');o.value=value;$('filter-modality').append(o);});$('filter-modality').value=currentModality;
   renderActivity();renderJobs();renderQueues();renderExports();renderSQL(s.sql);
-  for(const id of ['scan','scan-selected','add-report-folders','match','prepare-batch','export-batch','prepare','approve','export','mount-submit'])$(id).disabled=active()||(['scan-selected','add-report-folders'].includes(id)&&!chosenFolders.size)||(id==='prepare'&&!$('report-choice').value);
+  for(const id of ['scan','scan-selected','add-dicom-folders','add-report-folders','match','prepare-batch','export-batch','prepare','approve','export','mount-submit'])$(id).disabled=active()||(['scan-selected','add-dicom-folders','add-report-folders'].includes(id)&&!chosenFolders.size)||(id==='prepare'&&!$('report-choice').value);
   $('release-version').textContent='v'+s.version;updateExportSelection();updateResearchProgress();
   const savedSQL=$('reindex-sql-file').value;$('reindex-sql-file').replaceChildren(el('option','Select SQL dump'));$('reindex-sql-file').firstChild.value='';
   for(const item of s.sql||[]){const o=el('option',item.path);o.value=item.id;$('reindex-sql-file').append(o);}$('reindex-sql-file').value=savedSQL||(s.sql?.length===1?String(s.sql[0].id):'');
@@ -444,7 +444,7 @@ for(const state of states){const o=el('option',labels[state]);o.value=state;$('f
 const chosenFolders=new Map();let folderRelative='.',folderOffset=0;
 function folderKey(root,relative){return root+':'+relative;}
 function selectFolder(root,relative,checked){const key=folderKey(root,relative);if(checked)chosenFolders.set(key,{root,relative});else chosenFolders.delete(key);renderSelected();}
-function renderSelected(){$('folder-selected').replaceChildren();for(const [key,folder] of chosenFolders){const line=document.createElement('p');line.textContent=$('folder-root').options[folder.root].textContent+' / '+folder.relative+' ';const remove=document.createElement('button');remove.textContent='Remove';remove.className='secondary';remove.onclick=()=>{chosenFolders.delete(key);renderSelected();browseFolders();};line.append(remove);$('folder-selected').append(line);}$('scan-selected').disabled=!chosenFolders.size;$('add-report-folders').disabled=!chosenFolders.size||active();}
+function renderSelected(){$('folder-selected').replaceChildren();for(const [key,folder] of chosenFolders){const line=document.createElement('p');line.textContent=$('folder-root').options[folder.root].textContent+' / '+folder.relative+' ';const remove=document.createElement('button');remove.textContent='Remove';remove.className='secondary';remove.onclick=()=>{chosenFolders.delete(key);renderSelected();browseFolders();};line.append(remove);$('folder-selected').append(line);}$('scan-selected').disabled=!chosenFolders.size;$('add-dicom-folders').disabled=!chosenFolders.size||active();$('add-report-folders').disabled=!chosenFolders.size||active();}
 let folderRequest=0;
 async function browseFolders(append=false){
  const request=++folderRequest,root=Number($('folder-root').value),relative=folderRelative,start=folderOffset;
@@ -456,7 +456,7 @@ async function browseFolders(append=false){
   if(!append)addFolder(root,relative,'Include this folder and all subfolders',false);
   for(const child of data.children)addFolder(root,child.relative,child.name,true);
   const files=data.files||data.sql_files?.map(name=>({name,supported:true}))||[];
-  for(const file of files){const row=el('div',undefined,'folder-file');row.append(el('strong',file.name),el('span',file.supported?'Ready to add with this folder':'Not importable here · requires a plain .sql or .txt export','sub'));if(file.supported)row.append(button('Select folder',()=>{selectFolder(root,relative,true);browseFolders();}));$('folder-list').append(row);}
+  for(const file of files){const row=el('div',undefined,'folder-file');row.append(el('strong',file.name),el('span',file.supported?'TXT / SQL report source':'Checked for DICOM when you add this folder','sub'));row.append(button('Select folder',()=>{selectFolder(root,relative,true);browseFolders();}));$('folder-list').append(row);}
   if(!append&&!data.total&&!files.length)$('folder-list').append(el('p','No files or subfolders are visible here. Check the selected share, folder and server access.','muted'));
   $('folder-more').hidden=start+200>=Math.max(data.total,data.file_total||0);
  }catch(e){if(request!==folderRequest)return;$('folder-location').textContent='Could not read this source: '+e.message;$('folder-more').hidden=true;notice(e.message,true);}
@@ -464,7 +464,7 @@ async function browseFolders(append=false){
 function addFolder(root,relative,title,open){const row=document.createElement('div');row.className='toolbar';const label=document.createElement('label');label.className='check';const input=document.createElement('input');input.type='checkbox';input.checked=chosenFolders.has(folderKey(root,relative));input.onchange=()=>selectFolder(root,relative,input.checked);label.append(input,document.createTextNode(' '+title));row.append(label);if(open){const button=document.createElement('button');button.textContent='Open';button.className='secondary';button.onclick=()=>{folderRelative=relative;folderOffset=0;browseFolders();};row.append(button);}$('folder-list').append(row);}
 $('folder-open').onclick=()=>{folderRelative='.';folderOffset=0;browseFolders();};$('folder-root').onchange=$('folder-open').onclick;
 $('folder-up').onclick=()=>{folderRelative=folderRelative.includes('/')?folderRelative.slice(0,folderRelative.lastIndexOf('/')):'.';folderOffset=0;browseFolders();};
-$('folder-more').onclick=()=>{folderOffset+=200;browseFolders(true);};$('add-report-folders').onclick=()=>queue('add_reports',{folders:[...chosenFolders.values()]});$('scan-selected').onclick=()=>queue('scan',{folders:[...chosenFolders.values()]});
+$('folder-more').onclick=()=>{folderOffset+=200;browseFolders(true);};$('add-dicom-folders').onclick=safely(async()=>{const result=await queue('add_dicom',{folders:[...chosenFolders.values()]});if(result){chosenFolders.clear();renderSelected();await browseFolders();notice('Selected patient folders queued. Existing TXT and SQL indexes are reused; follow progress in Processing jobs.');}});$('add-report-folders').onclick=()=>queue('add_reports',{folders:[...chosenFolders.values()]});$('scan-selected').onclick=()=>queue('scan',{folders:[...chosenFolders.values()]});
 
 let historicalViewerUrl='';
 let historicalSelectionSerial=0;

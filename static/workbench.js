@@ -176,7 +176,7 @@ function setupOperations(){
  source.querySelector('.section-head').after(head);
  const folder=$('folder-root').closest('details');folder.open=true;
  folder.querySelector('summary').textContent='2 · Add report folders';
- folder.querySelector('p').textContent='Select folders containing TXT reports or the SQL export. Subfolders are included. Adding reports keeps the existing DICOM catalog.';
+ folder.querySelector('p').textContent='Select one or more folders from any connected source. DICOM images and TXT reports can share a folder. All subfolders are included.';
  const intro=el('p','After connecting TXT or the EMR export share, select its folder and choose Add TXT / SQL. This preserves your indexed DICOM. Then select the discovered export and import its SQL reports.','source-guide');folder.prepend(intro);
  $('scan').hidden=true;
  const full=$('reindex-catalog').closest('.panel'),advanced=el('details');advanced.id='advanced-indexing';full.append(advanced);advanced.append(el('summary','Advanced: full scans and reindexing'),$('reindex-catalog'),$('scan-selected'),$('scan'));
@@ -197,7 +197,7 @@ function setupOperations(){
  // Keep everyday import actions prominent and maintenance tools in disclosures.
  intro.remove();
  folder.querySelector('summary').textContent='Choose folders';
- foldersPanel.prepend(el('h3','2 · Add TXT / SQL files'),el('p','Choose a report source, open its folder, then add it to your catalog. Your indexed DICOM stays in place.','step-description'));
+ foldersPanel.prepend(el('h3','2 · Add DICOM / TXT / SQL folders'),el('p','Choose folders, then select Add DICOM + reports. Only selected folders are scanned. Existing TXT and SQL indexes are reused; other patients and unchanged reviews stay in place. Use Add TXT / SQL for reports only.','step-description'));
  foldersPanel.querySelector('p.muted').remove();
  const paths=el('details',undefined,'connection-details');paths.append(el('summary','Connected paths'),$('sources'));foldersPanel.append(paths);
  $('match').hidden=true;
@@ -205,7 +205,7 @@ function setupOperations(){
  const maintenance=el('details',undefined,'connection-details');maintenance.append(el('summary','Troubleshooting and full indexing'),inspect,advanced);overview.append(maintenance);
  matching.querySelector('p:last-child').remove();
  full.id='sql-import-step';foldersPanel.id='report-folder-step';matching.id='matching-step';
- const introHead=el('div',undefined,'operations-intro');introHead.append(el('small','OPERATIONS'),el('h2','Bring your reports into the workspace'),el('p','Connect once. Add report files. Match them to the studies you already indexed.'));
+ const introHead=el('div',undefined,'operations-intro');introHead.append(el('small','OPERATIONS'),el('h2','Bring your images and reports into the workspace'),el('p','Connect once. Add multiple DICOM and report folders. Review each examination, then export by patient.'));
  source.prepend(introHead);
  for(const b of head.querySelectorAll('button'))b.classList.add('secondary');
 }
@@ -255,7 +255,11 @@ function renderPatientStudies(){
  host.append(table);
 }
 function renderPatientSummary(){
- const panel=$('patient-summary');if(!panel)return;panel.replaceChildren(el('small','PATIENT EXPORT'),el('h2','Review studies, export together'));
+ const panel=$('patient-summary');if(!panel)return;
+ const removalKey=JSON.stringify([patientSubject,patientStudies.map(s=>s.uid).sort()]);
+ const previousRemoval=$('patient-removal'),sameRemoval=previousRemoval?.dataset.selection===removalKey;
+ const removalOpen=sameRemoval&&previousRemoval.open,removalConfirmed=sameRemoval&&$('remove-patient-confirm')?.checked;
+ panel.replaceChildren(el('small','PATIENT EXPORT'),el('h2','Review studies, export together'));
  if(!patientSubject||!patientStudies.length){panel.append(el('p','Expand a patient to select examinations.'));return;}
  const chosen=patientStudies.filter(s=>patientSelection.has(s.uid)),ready=chosen.filter(s=>s.state==='approved'),prepare=chosen.filter(s=>s.report_id&&!s.prepared&&!['approved','exported'].includes(s.state));
  panel.append(el('h3',displayPatient(patientStudies[0].name)),el('p','Anonymous name / ID','muted'),el('code',patientSubject),el('p',chosen.length+' selected · '+ready.length+' ready · '+(chosen.length-ready.length)+' held','patient-totals'));
@@ -265,4 +269,13 @@ function renderPatientSummary(){
  const prepareButton=button('Prepare '+prepare.length+' associated reports',run('prepare_patient'));prepareButton.disabled=!prepare.length||active();
  const crosswalk=button('Download patient crosswalk',safely(async()=>{const response=await fetch('/api/exports/crosswalk',{method:'POST',headers:{'X-CSRF-Token':csrf,'Content-Type':'application/json'},body:JSON.stringify({subject:patientSubject})});if(!response.ok)throw Error('Crosswalk download failed');const url=URL.createObjectURL(await response.blob()),a=el('a');a.href=url;a.download='patient-crosswalk.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}));
  panel.append(exportButton,prepareButton,crosswalk,el('small','Crosswalk contains identifying information and is downloaded separately.'));
+ const removal=el('details',undefined,'connection-details');removal.append(el('summary','Remove patient from DICOM list'),el('p','Removes all '+patientStudies.length+' examinations for this patient from the catalog. Original images, reports, completed exports and the anonymous identity mapping are retained. Adding these folders again can restore the patient; reviews will need to be repeated.'));
+ removal.id='patient-removal';removal.dataset.selection=removalKey;removal.open=Boolean(removalOpen);
+ const confirm=el('input');confirm.type='checkbox';confirm.id='remove-patient-confirm';confirm.checked=Boolean(removalConfirmed);const label=el('label',undefined,'check');label.append(confirm,document.createTextNode(' Remove this patient and all their examinations from the list'));
+ const subject=patientSubject,uids=patientStudies.map(s=>s.uid);
+ const remove=button('Remove patient from list',safely(async()=>{
+  if(!confirm.checked||subject!==patientSubject)return;
+  await api('/api/patients/'+encodeURIComponent(subject)+'/remove',{confirm:true,uids});
+  location.hash='#patients';location.reload();
+ }));remove.id='remove-patient';remove.disabled=!confirm.checked||active();confirm.onchange=()=>{remove.disabled=!confirm.checked||active();};removal.append(label,remove);panel.append(removal);
 }

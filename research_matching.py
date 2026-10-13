@@ -59,7 +59,7 @@ def rank(study, info, dob='', anatomy=()):
 
 
 def build(config, job=None):
-    from engine import require_scan,family_name
+    from engine import require_scan
     run=str(time.time_ns());sql_status='not checked';count=0
     with database(config) as db:
         require_scan(db)
@@ -103,26 +103,9 @@ def build(config, job=None):
         checkpoint(config,job)
         with database(config) as db:studies=[dict(r) for r in db.execute('SELECT * FROM studies WHERE uid>? ORDER BY uid LIMIT 100',(last,))]
         if not studies:break
-        for study in studies:
-            checkpoint(config,job)
-            with database(config) as db:
-                first=db.execute("SELECT metadata FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=? ORDER BY id LIMIT 1",(study['uid'],)).fetchone()
-                meta=json.loads(first[0]) if first else {}
-                studykeys=['N:'+normalize_name(study['name']),'A:'+clean_id(study['accession']),'P:'+clean_id(study['patient']),'U:'+study['uid']]
-                studykeys+=['W:'+word for word in normalize_name(family_name(study['name'])).split()]
-                placeholders=','.join('?' for _ in studykeys)
-                candidates=[dict(r) for r in db.execute("SELECT r.* FROM match_reports r JOIN match_report_keys k ON k.report=r.id WHERE k.key IN ("+placeholders+") GROUP BY r.id ORDER BY MIN(CASE substr(k.key,1,1) WHEN 'U' THEN 0 WHEN 'A' THEN 1 WHEN 'N' THEN 2 WHEN 'P' THEN 3 ELSE 4 END),r.id LIMIT 1001",studykeys)]
-            anatomy=regions(meta.get('BodyPartExamined','')+' '+meta.get('SeriesDescription',''))
-            ranked=[]
-            for report in candidates[:1000]:
-                info=json.loads(report['evidence']); result=rank(study,info,meta.get('PatientBirthDate',''),anatomy)
-                ranked.append((report,result))
-            ranked.sort(key=lambda x:({'strong':0,'review':1,'differences':2}[x[1]['bucket']],-x[1]['points'],x[0]['source']!='sql',x[0]['id']))
-            with database(config) as db:
-                for position,(report,result) in enumerate(ranked[:10]):
-                    db.execute('INSERT INTO study_suggestions VALUES (?,?,?,?,?,?)',(study['uid'],report['id'],study['fingerprint'],position,json.dumps(result),run))
-            processed+=1
-            if processed%100==0:progress(config,job,processed,'Comparing studies with indexed report evidence','Find report suggestions')
+        rank_studies(config,studies,run,job)
+        processed+=len(studies)
+        progress(config,job,processed,'Comparing studies with indexed report evidence','Find report suggestions')
         last=studies[-1]['uid']
     with database(config) as db:
         for key,value in [('suggestions_ready','1'),('suggestions_txt',txt_status),('suggestions_sql',sql_status),('suggestions_built',str(time.time())),('suggestions_run',run)]:
@@ -130,13 +113,68 @@ def build(config, job=None):
     progress(config,job,processed,'Report suggestions ready; relationships require researcher confirmation','Find report suggestions')
 
 
+def add_folders(config, scan_run, job=None):
+    """Refresh selected-folder TXT evidence and use the existing SQL/TXT index."""
+    with database(config) as db:
+        studies=[dict(r) for r in db.execute('''SELECT * FROM studies WHERE uid IN
+            (SELECT json_extract(metadata,'$.StudyInstanceUID') FROM files
+             WHERE kind='dicom' AND active=1 AND seen=?)''',(scan_run,))]
+        touched={r['uid']:r for r in studies}
+        rows=db.execute("SELECT f.id,f.path,f.kind,f.metadata,f.status,f.active,s.text FROM files f LEFT JOIN report_search s ON s.rowid=f.id WHERE f.seen=? AND (f.kind='report' OR EXISTS (SELECT 1 FROM match_reports r WHERE r.source='txt' AND r.ref=CAST(f.id AS TEXT)))",(scan_run,)).fetchall()
+        for row in rows:
+            checkpoint(config,job)
+            old=db.execute("SELECT id,hash FROM match_reports WHERE source='txt' AND ref=?",(str(row['id']),)).fetchone()
+            metadata=json.loads(row['metadata'])
+            if old and row['kind']=='report' and row['active'] and row['status']=='ok' and old['hash']==metadata.get('hash'):continue
+            if old:
+                for study in db.execute('SELECT s.* FROM studies s JOIN study_suggestions g ON g.uid=s.uid WHERE g.report=?',(old['id'],)):
+                    touched[study['uid']]=dict(study)
+                db.execute('DELETE FROM study_suggestions WHERE report=?',(old['id'],))
+                db.execute('DELETE FROM match_report_keys WHERE report=?',(old['id'],))
+                db.execute('DELETE FROM match_reports WHERE id=?',(old['id'],))
+            if row['kind']=='report' and row['active'] and row['status']=='ok' and row['text'] is not None:
+                info=evidence(row['text'],row['path'])
+                cursor=db.execute("INSERT INTO match_reports(source,ref,path,hash,evidence) VALUES ('txt',?,?,?,?)",(str(row['id']),row['path'],metadata['hash'],json.dumps(info)))
+                db.executemany('INSERT INTO match_report_keys VALUES (?,?)',[(key,cursor.lastrowid) for key in keys(info)])
+    rank_studies(config,list(touched.values()),scan_run,job)
+    with database(config) as db:
+        db.execute("INSERT OR REPLACE INTO settings VALUES ('suggestions_ready','1')")
+        db.execute("INSERT OR REPLACE INTO settings VALUES ('suggestions_built',?)",(str(time.time()),))
+        db.execute("INSERT OR REPLACE INTO settings VALUES ('suggestions_txt','Selected-folder TXT updated; existing report index reused')")
+        db.execute("INSERT OR IGNORE INTO settings VALUES ('suggestions_sql','Existing SQL index retained; import SQL separately if not yet indexed')")
+    progress(config,job,len(touched),'Selected folders added; existing TXT and SQL indexes reused','Find report suggestions')
+
+
 def suggestions(config,uid):
     with database(config) as db:
         ready=db.execute("SELECT value FROM settings WHERE key='suggestions_ready'").fetchone()
-        rebuilding=db.execute("SELECT 1 FROM jobs WHERE state IN ('queued','running') AND kind IN ('scan','reindex','reindex_sql','suggest_reports','match','add_reports') LIMIT 1").fetchone()
+        rebuilding=db.execute("SELECT 1 FROM jobs WHERE state IN ('queued','running') AND kind IN ('scan','reindex','reindex_sql','suggest_reports','match','add_reports','add_dicom') LIMIT 1").fetchone()
         if rebuilding:ready=None
         txt=db.execute("SELECT value FROM settings WHERE key='suggestions_txt'").fetchone()
         sql=db.execute("SELECT value FROM settings WHERE key='suggestions_sql'").fetchone()
         rows=[dict(r) for r in db.execute('SELECT r.*,s.ranking FROM study_suggestions s JOIN match_reports r ON r.id=s.report JOIN studies d ON d.uid=s.uid WHERE s.uid=? AND s.fingerprint=d.fingerprint ORDER BY s.position',(uid,))] if ready and ready[0]=='1' else []
     return {'ready':bool(ready and ready[0]=='1'),'sql_status':sql[0] if sql else 'not checked','txt_status':txt[0] if txt else 'not checked',
             'rows':[dict(source=r['source'],ref=r['ref'],path=r['path'],hash=r['hash'],identity=json.loads(r['evidence']),**json.loads(r['ranking'])) for r in rows]}
+
+
+def rank_studies(config, studies, run, job=None):
+    from engine import family_name
+    for study in studies:
+        checkpoint(config,job)
+        with database(config) as db:
+            first=db.execute("SELECT metadata FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=? ORDER BY id LIMIT 1",(study['uid'],)).fetchone()
+            meta=json.loads(first[0]) if first else {}
+            studykeys=['N:'+normalize_name(study['name']),'A:'+clean_id(study['accession']),'P:'+clean_id(study['patient']),'U:'+study['uid']]
+            studykeys+=['W:'+word for word in normalize_name(family_name(study['name'])).split()]
+            placeholders=','.join('?' for _ in studykeys)
+            candidates=[dict(r) for r in db.execute("SELECT r.* FROM match_reports r JOIN match_report_keys k ON k.report=r.id WHERE k.key IN ("+placeholders+") GROUP BY r.id ORDER BY MIN(CASE substr(k.key,1,1) WHEN 'U' THEN 0 WHEN 'A' THEN 1 WHEN 'N' THEN 2 WHEN 'P' THEN 3 ELSE 4 END),r.id LIMIT 1001",studykeys)]
+        anatomy=regions(meta.get('BodyPartExamined','')+' '+meta.get('SeriesDescription',''))
+        ranked=[]
+        for report in candidates[:1000]:
+            info=json.loads(report['evidence']); result=rank(study,info,meta.get('PatientBirthDate',''),anatomy)
+            ranked.append((report,result))
+        ranked.sort(key=lambda x:({'strong':0,'review':1,'differences':2}[x[1]['bucket']],-x[1]['points'],x[0]['source']!='sql',x[0]['id']))
+        with database(config) as db:
+            db.execute('DELETE FROM study_suggestions WHERE uid=?',(study['uid'],))
+            for position,(report,result) in enumerate(ranked[:10]):
+                db.execute('INSERT INTO study_suggestions VALUES (?,?,?,?,?,?)',(study['uid'],report['id'],study['fingerprint'],position,json.dumps(result),run))
