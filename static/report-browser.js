@@ -1,8 +1,21 @@
 /* Report identity is independent of study selection; requests never imply a match. */
 let browserSerial=0,browserSelection=null,browserOffset=0,associationBusy=false;
+function renderDiagnosticReport(result){
+ const view=$('diagnostic-report');if(!view)return;view.replaceChildren();
+ if(!result){view.append(el('p','Select a report to read its diagnostic narrative.','muted'));return;}
+ view.append(el('h3','Diagnostic radiology report'));
+ if(result.format_status==='unparsed')view.append(el('p','This source could not be formatted. Review the original source below.','warning'));
+ const text=result.formatted??result.text;
+ for(const block of text.split(/\n\s*\n/)){
+  const lines=block.split('\n'),heading=lines[0].replace(/:$/,'');
+  if(/^(CLINICAL HISTORY|HISTORY|INDICATION|COMPARISON|TECHNIQUE|FINDINGS|IMPRESSION|CONCLUSION|RECOMMENDATION)$/.test(heading)){view.append(el('h4',heading),el('p',lines.slice(1).join('\n')));}
+  else view.append(el('p',block));
+ }
+}
 function clearBrowserPreview(){
  ++browserSerial;browserSelection=null;
  $('browser-text').value='';$('browser-identity').textContent='No report preview selected.';
+ renderDiagnosticReport(null);
  $('browser-confirm').checked=false;$('browser-note').value='';$('browser-associate').disabled=true;
  for(const box of $('browser-rows').querySelectorAll('input'))box.checked=false;
 }
@@ -20,7 +33,7 @@ async function browseReports(){
    clearBrowserPreview();box.checked=true;const request=browserSerial;
    const result=await api('/api/report-browser/preview',{source:item.source,ref:item.ref});
    if(request!==browserSerial||result.source!==item.source||String(result.ref)!==String(item.ref))return;
-   box.checked=true;browserSelection=result;activateReportTab('preview');$('browser-text').value=result.text;
+   box.checked=true;browserSelection=result;activateReportTab('preview');$('browser-text').value=result.text;renderDiagnosticReport(result);
    $('browser-identity').textContent='REPORT RECORD: '+item.source.toUpperCase()+' | Name: '+(result.identity?.name||item.name||'unknown')+' | DOB: '+(result.identity?.dob||'unknown')+' | Source date (verify exam): '+(result.date||result.identity?.exam_date||result.identity?.report_date||'unknown')+'. Compare this source record with the selected DICOM study before association.';
   };
   box.onchange=safely(async()=>{if(box.checked)await preview();else clearBrowserPreview();});

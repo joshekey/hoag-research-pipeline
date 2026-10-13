@@ -154,8 +154,10 @@ def browse_folders(config, root_index, relative='.', offset=0):
     root = checked_root(config, config['source_roots'][root_index])
     path = selected_path(root, relative)
     children = sorted((p for p in path.iterdir() if not p.is_symlink() and p.is_dir()), key=lambda p: p.name.casefold())
-    exports=sorted(p.name for p in path.iterdir() if p.is_file() and not p.is_symlink() and p.suffix.lower()=='.sql')[:200]
-    return {'root': root_index, 'relative': relative, 'sql_files':exports, 'total': len(children),
+    files=sorted((p for p in path.iterdir() if not p.is_symlink() and p.is_file()),key=lambda p:p.name.casefold())
+    exports=[p.name for p in files if p.suffix.lower()=='.sql'][:200]
+    visible=[{'name':p.name,'supported':p.suffix.lower() in ('.txt','.sql')} for p in files[offset:offset+200]]
+    return {'root': root_index, 'relative': relative, 'sql_files':exports, 'files':visible, 'file_total':len(files), 'total': len(children),
             'children': [{'name': p.name, 'relative': p.relative_to(root).as_posix()} for p in children[offset:offset + 200]]}
 
 

@@ -35,7 +35,11 @@ def search(config, body):
 
 
 def preview(config, source, ref):
-    if source=='sql': return request_broker({'action':'browse_preview','token':ref})
+    if source=='sql':
+        from report_format import format_report
+        result=dict(request_broker({'action':'browse_preview','token':ref}))
+        result['formatted'],result['format_status']=format_report(result['text'])
+        return result
     if source!='txt': raise ValueError('Invalid report source')
     with database(config) as db:
         row=db.execute("SELECT * FROM files WHERE id=? AND kind='report' AND active=1 AND status='ok'",(int(ref),)).fetchone()

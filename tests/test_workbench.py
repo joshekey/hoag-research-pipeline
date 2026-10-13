@@ -14,6 +14,17 @@ class WorkbenchTests(unittest.TestCase):
     setUp=workflow.WorkflowTests.setUp
     client=tabbed.TabbedWorkflowTests.client
 
+    def test_sql_browser_restores_radiology_layout_without_changing_source(self):
+        import report_browser
+        raw='<Envelope><notes>CT CHEST</notes><notes>FINDINGS: Synthetic finding.</notes><notes>IMPRESSION: Synthetic conclusion.</notes></Envelope>'
+        source={'source':'sql','ref':'synthetic','text':raw,'hash':'original-hash'}
+        with patch('report_browser.request_broker',return_value=source):
+            result=report_browser.preview(self.config,'sql','synthetic')
+        self.assertIn('FINDINGS\nSynthetic finding.',result['formatted'])
+        self.assertIn('IMPRESSION\nSynthetic conclusion.',result['formatted'])
+        self.assertEqual(result['text'],raw)
+        self.assertEqual(result['hash'],'original-hash')
+
     def test_installer_includes_every_template_asset(self):
         root=Path(__file__).resolve().parents[1]
         html=(root/'templates/index.html').read_text(encoding='utf-8')
@@ -62,8 +73,13 @@ class WorkbenchTests(unittest.TestCase):
 
     def test_folder_browser_shows_sql_exports_without_opening_contents(self):
         (self.sources[1]/'emr.sql').write_text('-- synthetic export')
+        (self.sources[1]/'UPPER.SQL').write_text('-- synthetic export')
+        (self.sources[1]/'archive.sql.gz').write_bytes(b'not a plain SQL file')
         data=engine.browse_folders(self.config,1)
-        self.assertEqual(data['sql_files'],['emr.sql'])
+        self.assertEqual(set(data['sql_files']),{'emr.sql','UPPER.SQL'})
+        files={row['name']:row for row in data['files']}
+        self.assertTrue(files['UPPER.SQL']['supported'])
+        self.assertFalse(files['archive.sql.gz']['supported'])
 
     def test_first_navigation_step_is_dicom_and_sources_are_operational(self):
         client,auth=self.client();html=client.get('/',headers=auth).get_data(as_text=True)

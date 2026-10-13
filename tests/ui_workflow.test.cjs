@@ -121,3 +121,25 @@ test('failed jobs and partial source coverage remain visibly distinct from ready
 test('study-first workbench keeps DICOM visible while comparing reports',async()=>{
  const f=fixture({suggestions:true});try{await settle();await f.open('1.2.3');await settle();assert.equal(f.$('research-workbench').hidden,false);assert.equal(f.$('image-pane').hidden,false);assert.equal(f.$('matching').hidden,false);assert.equal(f.$('studies').closest('.study-browser')!==null,true);f.$('suggestion-list').querySelector('button').click();await settle();assert.equal(f.$('report-preview').hidden,false);assert.equal(f.$('suggestion-pane').hidden,true);assert.equal(f.$('image-pane').hidden,false);assert.match(f.$('sql-readiness').textContent,/No SQL dump indexed/);f.$('next-anonymize').click();await settle();assert.equal(f.$('privacy-dock').hidden,false);assert.equal(f.$('image-pane').hidden,false);}finally{f.dom.window.close();}
 });
+
+test('OHIF opens a separate tab and never embeds the study',async()=>{
+ const f=fixture();try{
+  await settle();await f.open('1.2.3');await settle();
+  const opened=[];f.w.open=(...args)=>opened.push(args);
+  f.$('ohif-toggle').click();
+  assert.deepEqual(opened,[['/viewer?StudyInstanceUIDs=1.2.3','_blank','noopener,noreferrer']]);
+  assert.equal(f.$('ohif-iframe').hasAttribute('src'),false);
+ }finally{f.dom.window.close();}
+});
+
+test('Fit includes the full tall image and retains mask alignment',async()=>{
+ const f=fixture();try{
+  await settle();await f.open('1.2.3');await settle();
+  Object.defineProperties(f.$('image'),{naturalWidth:{value:1000},naturalHeight:{value:2000}});
+  Object.defineProperties(f.$('image-viewport'),{clientWidth:{value:600},clientHeight:{value:400}});
+  f.$('zoom-fit').click();
+  assert.equal(f.$('image-stage').style.width,'200px');assert.equal(f.$('image-stage').style.height,'400px');
+  f.$('zoom-in').click();assert.equal(f.$('image-stage').style.width,'250px');
+  f.$('zoom-fit').click();assert.equal(f.$('image-stage').style.height,'400px');
+ }finally{f.dom.window.close();}
+});

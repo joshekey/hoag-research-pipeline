@@ -43,6 +43,8 @@ function setupWorkbench(){
   (reading?preview:discovery).append(child);
  }
  source.append(discovery,preview);
+ const diagnostic=el('article');diagnostic.id='diagnostic-report';diagnostic.setAttribute('aria-label','Diagnostic radiology report');
+ const raw=$('browser-text').closest('label'),rawDetails=el('details');rawDetails.className='original-source';rawDetails.append(el('summary','Original source text / XML'),raw);preview.insertBefore(diagnostic,$('browser-confirm').closest('label'));diagnostic.after(rawDetails);renderDiagnosticReport(null);
  const privacy=el('div');privacy.id='privacy-dock';
  privacy.append($('legacy-txt-tools'),$('txt-original-panel'),privacyPanel,...document.querySelectorAll('.approval-panel,.approval-actions'));
  reports.append(privacy);
@@ -55,7 +57,7 @@ function setupWorkbench(){
  const imageAdvanced=el('details',undefined,'image-advanced');imageAdvanced.append(el('summary','Pixel masks and image privacy tools'));
  const masks=$('masks').closest('label'),maskHelp=masks.nextElementSibling;imageAdvanced.append(masks);if(maskHelp)imageAdvanced.append(maskHelp);
  imagePanel.append(imageAdvanced);
- imagePanel.append($('ohif-pilot-panel'));
+ const ohif=$('ohif-pilot-panel');ohif.removeAttribute('data-phase');imagePanel.prepend(ohif);$('ohif-toggle').textContent='Open OHIF viewer ↗';$('ohif-toggle').title='Open this study in a separate browser tab';
  $('report-search').closest('.toolbar').hidden=true;
  $('legacy-txt-tools').open=true;
  $('study-rows').addEventListener('click',()=>activateReportTab('suggestions'));

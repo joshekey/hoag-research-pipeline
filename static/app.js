@@ -31,7 +31,7 @@ async function refresh() {
   $('cards').replaceChildren();
   for(const [label,value] of [['DICOM files',s.counts.filter(x=>x.kind==='dicom'&&x.status==='ok').reduce((n,x)=>n+x.count,0)],['Text reports',s.counts.filter(x=>x.kind==='report'&&x.status==='ok').reduce((n,x)=>n+x.count,0)],['Studies',s.states.reduce((n,x)=>n+x.count,0)],['Approved',stateCount('approved')]]) {const c=el('div',undefined,'card');c.append(el('strong',value.toLocaleString()),el('span',label));$('cards').append(c);}
   $('sources').replaceChildren(...[...s.sources.map(x=>'Source: '+x),'Output: '+s.output].map(p=>el('p',p)));
-  if($('folder-root').options.length!==s.sources.length){const current=$('folder-root').value;$('folder-root').replaceChildren();s.sources.forEach((path,index)=>{const o=el('option',path);o.value=index;$('folder-root').append(o);});$('folder-root').value=current||'0';}
+  if(JSON.stringify([...$('folder-root').options].map(o=>o.textContent))!==JSON.stringify(s.sources)){const current=$('folder-root').value;$('folder-root').replaceChildren();s.sources.forEach((path,index)=>{const o=el('option',path);o.value=index;$('folder-root').append(o);});$('folder-root').value=Number(current)<s.sources.length?current||'0':'0';++folderRequest;$('folder-list').replaceChildren();$('folder-location').textContent='Source list updated. Choose Browse share to see its files.';}
   if(!foldersInitialized){foldersInitialized=true;try{const saved=JSON.parse(s.settings.scan_folders||'null');if(Array.isArray(saved))for(const folder of saved)chosenFolders.set(folderKey(folder.root,folder.relative),folder);renderSelected();}catch(e){notice('Previous folder selection could not be restored.',true);}}
   const currentModality=$('filter-modality').value;
   $('filter-modality').replaceChildren(el('option','All modalities'));$('filter-modality').firstChild.value='';
@@ -359,7 +359,17 @@ async function viewImage() {
 }
 function masks() {const value=JSON.parse($('masks').value);if(!Array.isArray(value)||value.some(r=>!Array.isArray(r)||r.length!==4||r.some(v=>!Number.isInteger(v)||v<0)||r[2]===0||r[3]===0))throw Error('Masks must be [[x,y,width,height]] with positive sizes');return value;}
 function drawMasks() {const canvas=$('mask-canvas'),image=$('image');if(!image.naturalWidth)return;canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);try{for(const [x,y,w,h] of masks()){ctx.fillStyle='rgba(255,90,90,.4)';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#ff7777';ctx.lineWidth=Math.max(1,canvas.width/350);ctx.strokeRect(x,y,w,h);}}catch(e){$('health').replaceChildren(el('p','Connection checks failed: '+e.message+'. Last connection results cannot be treated as current.','warning'));notice(e.message,true);} }
-function applyZoom() {const stage=$('image-stage');stage.style.width=(zoom*100)+'%';$('zoom-value').textContent=Math.round(zoom*100)+'%';}
+function applyZoom() {
+ const stage=$('image-stage'),image=$('image'),viewport=$('image-viewport');
+ if(!image.naturalWidth||!image.naturalHeight||!viewport.clientWidth||!viewport.clientHeight)return;
+ const fit=Math.min(viewport.clientWidth/image.naturalWidth,viewport.clientHeight/image.naturalHeight);
+ stage.style.width=(image.naturalWidth*fit*zoom)+'px';
+ stage.style.height=(image.naturalHeight*fit*zoom)+'px';
+ $('zoom-value').textContent=zoom===1?'Fit':Math.round(zoom*100)+'% of fit';
+ if(zoom===1){viewport.scrollTop=0;viewport.scrollLeft=0;}
+}
+if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>applyZoom()).observe($('image-viewport'));
+window.addEventListener('resize',applyZoom);
 let dragStart=null;
 function point(event) {const c=$('mask-canvas'),r=c.getBoundingClientRect();return [Math.max(0,Math.min(c.width,Math.round((event.clientX-r.left)*c.width/r.width))),Math.max(0,Math.min(c.height,Math.round((event.clientY-r.top)*c.height/r.height)))];}
 $('mask-canvas').onpointerdown=event=>{if(!$('draw-mask').checked)return;event.preventDefault();dragStart=point(event);$('mask-canvas').setPointerCapture(event.pointerId);};
@@ -379,9 +389,7 @@ $('filter-clear').onclick=safely(()=>{for(const id of ['search','filter-state','
 $('previous').onclick=safely(()=>{offset=Math.max(0,offset-100);return list();});$('next').onclick=safely(()=>{offset+=100;return list();});$('page-number').onchange=safely(()=>{const page=Number($('page-number').value);offset=(Math.max(1,Math.min(Math.ceil(total/100)||1,Math.floor(page)||1))-1)*100;return list();});
 $('ohif-toggle').onclick=()=>{
  if(!uid)return;
- const host=$('ohif-host'),viewer=$('ohif-iframe');
- if(host.hidden){viewer.src='/viewer?StudyInstanceUIDs='+encodeURIComponent(uid);host.hidden=false;$('ohif-toggle').textContent='Close OHIF viewer';}
- else{viewer.removeAttribute('src');host.hidden=true;$('ohif-toggle').textContent='Open OHIF viewer';}
+ window.open('/viewer?StudyInstanceUIDs='+encodeURIComponent(uid),'_blank','noopener,noreferrer');
 };
 $('sql-candidate-refresh').onclick=safely(loadSQLCandidates);
 $('sql-draft-prepare').onclick=safely(async()=>{
@@ -428,7 +436,22 @@ const chosenFolders=new Map();let folderRelative='.',folderOffset=0;
 function folderKey(root,relative){return root+':'+relative;}
 function selectFolder(root,relative,checked){const key=folderKey(root,relative);if(checked)chosenFolders.set(key,{root,relative});else chosenFolders.delete(key);renderSelected();}
 function renderSelected(){$('folder-selected').replaceChildren();for(const [key,folder] of chosenFolders){const line=document.createElement('p');line.textContent=$('folder-root').options[folder.root].textContent+' / '+folder.relative+' ';const remove=document.createElement('button');remove.textContent='Remove';remove.className='secondary';remove.onclick=()=>{chosenFolders.delete(key);renderSelected();browseFolders();};line.append(remove);$('folder-selected').append(line);}$('scan-selected').disabled=!chosenFolders.size;$('add-report-folders').disabled=!chosenFolders.size||active();}
-async function browseFolders(append=false){try{const root=Number($('folder-root').value);const data=await api('/api/folders?root='+root+'&relative='+encodeURIComponent(folderRelative)+'&offset='+folderOffset);$('folder-location').textContent=folderRelative+(data.sql_files?.length?' · EMR exports found: '+data.sql_files.join(', ')+'. Select this folder and Add TXT / SQL.':'');if(!append){$('folder-list').replaceChildren();addFolder(root,folderRelative,'Include this folder and all subfolders',false);}for(const child of data.children)addFolder(root,child.relative,child.name,true);$('folder-more').hidden=folderOffset+data.children.length>=data.total;}catch(e){notice(e.message,true);}}
+let folderRequest=0;
+async function browseFolders(append=false){
+ const request=++folderRequest,root=Number($('folder-root').value),relative=folderRelative,start=folderOffset;
+ if(!append){$('folder-list').replaceChildren();$('folder-location').textContent='Reading source folder…';}
+ try{
+  const data=await api('/api/folders?root='+root+'&relative='+encodeURIComponent(relative)+'&offset='+start);if(request!==folderRequest)return;
+  const rootLabel=$('folder-root').selectedOptions[0]?.textContent||'Source';
+  $('folder-location').textContent=rootLabel+' / '+relative+' · '+data.total+' folders · '+(data.file_total??data.sql_files?.length??0)+' files';
+  if(!append)addFolder(root,relative,'Include this folder and all subfolders',false);
+  for(const child of data.children)addFolder(root,child.relative,child.name,true);
+  const files=data.files||data.sql_files?.map(name=>({name,supported:true}))||[];
+  for(const file of files){const row=el('div',undefined,'folder-file');row.append(el('strong',file.name),el('span',file.supported?'Ready to add with this folder':'Not importable here · requires a plain .sql or .txt export','sub'));if(file.supported)row.append(button('Select folder',()=>{selectFolder(root,relative,true);browseFolders();}));$('folder-list').append(row);}
+  if(!append&&!data.total&&!files.length)$('folder-list').append(el('p','No files or subfolders are visible here. Check the selected share, folder and server access.','muted'));
+  $('folder-more').hidden=start+200>=Math.max(data.total,data.file_total||0);
+ }catch(e){if(request!==folderRequest)return;$('folder-location').textContent='Could not read this source: '+e.message;$('folder-more').hidden=true;notice(e.message,true);}
+}
 function addFolder(root,relative,title,open){const row=document.createElement('div');row.className='toolbar';const label=document.createElement('label');label.className='check';const input=document.createElement('input');input.type='checkbox';input.checked=chosenFolders.has(folderKey(root,relative));input.onchange=()=>selectFolder(root,relative,input.checked);label.append(input,document.createTextNode(' '+title));row.append(label);if(open){const button=document.createElement('button');button.textContent='Open';button.className='secondary';button.onclick=()=>{folderRelative=relative;folderOffset=0;browseFolders();};row.append(button);}$('folder-list').append(row);}
 $('folder-open').onclick=()=>{folderRelative='.';folderOffset=0;browseFolders();};$('folder-root').onchange=$('folder-open').onclick;
 $('folder-up').onclick=()=>{folderRelative=folderRelative.includes('/')?folderRelative.slice(0,folderRelative.lastIndexOf('/')):'.';folderOffset=0;browseFolders();};
@@ -448,15 +471,8 @@ function clearHistoricalSelection(){
  $('historical-ohif-toggle').hidden=true;
 }
 $('historical-ohif-toggle').onclick=()=>{
- const host=$('historical-ohif-host'),frame=$('historical-ohif-iframe');
  if(!historicalViewerUrl||!historicalSelectedToken)return;
- if(host.hidden){
-   frame.src=historicalViewerUrl;host.hidden=false;
-   $('historical-ohif-toggle').textContent='Close historical OHIF viewer';
- }else{
-   frame.removeAttribute('src');host.hidden=true;
-   $('historical-ohif-toggle').textContent='Open this historical study in OHIF';
- }
+ window.open(historicalViewerUrl,'_blank','noopener,noreferrer');
 };
 async function loadHistoricalEMR(){
  const panel=$('historical-emr-leads');
