@@ -96,12 +96,13 @@ database, change fstab, remove credentials or revert mounts for this rollback.
 
 ## Second-pass patient readiness
 
-Install `batch_readiness.py` alongside `batch_reconcile.py`. Run as hoag-indexer:
+Install `batch_readiness.py` and `batch_root_causes.py` alongside
+`batch_reconcile.py`. Run as hoag-indexer:
 
 ```bash
 cd /opt/hoag-research
 sudo -u hoag-indexer /opt/hoag-research/venv/bin/python batch_readiness.py \
-  --manifest /var/lib/hoag-research/batch-reconciliation/run-REPLACE/manifest.private.json
+  --manifest /var/lib/hoag-research/batch-reconciliation/run-REPLACE/manifest.private.json --investigate
 ```
 
 Use the completed reconciliation run's actual private path on the hospital only.
@@ -124,14 +125,54 @@ TXT index-candidate access and saved-scope probes. Missing Windows path mappings
 still require an administrator's verified prefix mapping; no search is guessed.
 
 Each patient receives one status: conflicted, incomplete, pending, or
-verified_for_anonymization_review (in that precedence). Verified requires all
-inventoried identity and membership checks plus independently supported links
-covering every study and mapped report. This conservative complete-patient rule
-does not authorize partial delivery. Unrelated candidate comparisons do not
-block otherwise supported links. Original nonspecific exceptions stay held.
+verified_for_anonymization_review (in that precedence). Here "conflicted" means
+unresolved metadata/content differences, NOT a confirmed wrong patient.
+Verified requires all inventoried identity and membership checks plus independent
+patient verification of every mapped report. Name and DOB must match the DICOM
+patient evidence, with no conflicting report patient ID or multiple names;
+missing or inconsistent evidence remains held. Exam dates and accession numbers
+are not required for patient-bundle delivery. No study-to-report coverage or
+one-to-one pairing is required. The first analyzer imposed this extra requirement;
+analysis_version 2 corrects that workflow error without accepting associations.
+Original nonspecific exceptions stay held.
 Category counts of affected patients/studies/paths overlap; do not add them.
-Unique instance paths are physical files, not unique SOP objects. No pixel
-decoding or anonymization validation is claimed, even when full bytes are hashed.
+Unique instance paths are physical files, not unique SOP objects.
+
+With `--investigate`, differing duplicate objects are compared by stored pixel
+element, transfer syntax and geometry. When those differ, compatible objects
+are decoded and numerical arrays compared. Results distinguish identical stored
+pixels, equal decoded pixels with different encoding, different decoded pixels,
+different pixel structure, and unavailable/failed comparisons. Relevant image
+interpretation metadata is compared separately. Equal pixels do not clear altered
+metadata, overlays, annotations or private elements. No duplicate is automatically
+accepted, deleted, or deduplicated. Unsupported decoders and non-image objects
+remain unresolved. This is not full-batch pixel validation or anonymization.
+
+Identity output breaks down each attribute within studies and across studies.
+Namespace and historical-change explanations are hypotheses, not confirmations.
+Namespace resolution needs a trusted issuing-system/MRN mapping tied independently
+to the patient. Historical demographic resolution needs authorized demographic
+history plus stable identifiers and DOB evidence. Within-study disagreements need
+source/PACS confirmation of correct membership or corrected source records.
+Cross-label identifier collisions require an authoritative patient-master review;
+the number of actual cross-patient conflicts is unknown until that review.
+Lossy name normalization (including reordered DICOM name components) is flagged
+and held. Formatting-only differences are not proof of a mismatch. Aggregate
+scope/category counts overlap and must not be summed as distinct patients.
+
+Intended future layout (not created by these tools):
+
+```text
+P001/
+  DICOM/
+    study-001/  (series folders and individual instances)
+    study-002/
+  reports/     (all independently verified patient reports, redacted)
+```
+
+The same P### identity applies throughout. Patient Age retention and the approved
+deidentification/redaction requirements still apply at the later implementation
+and review gates. This analysis executes no anonymization or export.
 
 Rollback: stop using the standalone analyzer. No database rollback or remount is
 needed. Existing private reports and all originals remain unchanged.

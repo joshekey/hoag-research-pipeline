@@ -47,7 +47,7 @@ def fingerprint(path):
     return digest.hexdigest()
 
 
-def analyze(manifest, config, mounted):
+def analyze(manifest, config, mounted, investigate=False):
     if manifest.get('mode') != 'dry_run_only':
         raise base.ReconciliationError('complete_manifest_required')
     roots, output = config['source_roots'], Path(config['output_root']).resolve()
@@ -167,6 +167,7 @@ def analyze(manifest, config, mounted):
     # comparisons are not patient-level blockers by themselves.
     doc_labels = defaultdict(set)
     txt_diagnostics = []
+    patient_report_checks = []
     for doc in manifest['documents']:
         if doc['patient_key'] in by_key: doc_labels[doc['docid']].add(by_key[doc['patient_key']])
         if not doc.get('sha256') or not doc.get('text_location'):
@@ -185,11 +186,31 @@ def analyze(manifest, config, mounted):
         if doc.get('sha256') and doc.get('resolved_path'):
             try:
                 path = base.source_checked(doc['resolved_path'], roots, output, mounted)
-                if fingerprint(path) != doc['sha256']:
+                if path.stat().st_size > config['max_report_bytes']:
+                    raise base.ReconciliationError('report_too_large')
+                raw = path.read_bytes()
+                if hashlib.sha256(raw).hexdigest() != doc['sha256']:
                     raise base.ReconciliationError('report_changed')
+                info = base.report_evidence(raw.decode(config['report_encoding'], errors='strict'))
+                label = by_key.get(doc['patient_key'])
+                records = [r['metadata'] for r in objects.values() if label in r['owners'] and 'metadata' in r]
+                names = {base.normalize_name(m['PatientName']) for m in records}
+                dobs = {base.normalize_date(m['PatientBirthDate']) for m in records}
+                ids = {m['PatientID'].strip() for m in records if m['PatientID'].strip()}
+                supported = (bool(records) and bool(info.get('name')) and bool(info.get('dob'))
+                             and names == {info['name']} and dobs == {info['dob']}
+                             and not info.get('name_conflict')
+                             and (not info.get('patient_id') or info['patient_id'] in ids)
+                             and bool(doc.get('text_location')) and not doc.get('duplicate_source'))
+                patient_report_checks.append({'docid': doc['docid'], 'label': label,
+                    'independent_patient_evidence': supported, 'accepted': False})
+                if not supported: hold(doc_labels[doc['docid']], 'report_patient_identity_unverified')
             except Exception:
                 hold(doc_labels[doc['docid']], 'txt_changed_or_unreadable')
-    reassessed = {'association_needs_review', 'duplicate_sop_uid', 'inconsistent_patient_identity_across_studies'}
+        else:
+            hold(doc_labels[doc['docid']], 'report_patient_identity_unverified')
+    reassessed = {'association_needs_review', 'duplicate_sop_uid', 'inconsistent_patient_identity_across_studies',
+                  'study_without_readable_mapped_report', 'report_matches_multiple_studies'}
     diagnostics = []
     for issue in manifest['exceptions']:
         if issue['code'] in reassessed: continue
@@ -217,27 +238,14 @@ def analyze(manifest, config, mounted):
                 diagnostic['current_header'] = 'readable_requires_new_reconciliation' if all(ds.get(t) for t in ('StudyInstanceUID', 'SeriesInstanceUID', 'SOPInstanceUID')) else 'missing_required_uids'
             except Exception as error: diagnostic['current_header'] = base.error_code(error)
         diagnostics.append(diagnostic)
-    # Require every study and every mapped report to have an independently
-    # supported link. Unrelated candidate mismatches do not need to disappear.
-    supported = defaultdict(set)
-    study_links = defaultdict(set)
-    clearable = {'duplicate_sop_uid', 'inconsistent_patient_identity_across_studies',
-                 'inconsistent_PatientName', 'inconsistent_PatientID',
-                 'inconsistent_IssuerOfPatientID', 'inconsistent_PatientBirthDate'}
-    for study in manifest['studies']:
-        label = study['label']
-        for link in study['associations']:
-            conflicts = set(link['conflicts']) - clearable
-            if link['patient_evidence'] and link['study_evidence'] and not conflicts and 'explicit_txt_location' not in link['missing']:
-                supported[link['docid']].add(study['uid'])
-                study_links[study['uid']].add(link['docid'])
-    for doc in manifest['documents']:
-        label = by_key.get(doc['patient_key'])
-        if not label: continue
-        if len(supported[doc['docid']]) != 1:
-            states[label]['blockers'].add('report_association_unverified')
+    # Patient-bundle delivery requires patient ownership, not exam/report pairs.
+    # Study membership and independent patient checks above remain mandatory.
+    from batch_root_causes import identity_breakdown, duplicate_breakdown
+    root_causes = identity_breakdown(objects)
+    for finding in root_causes['normalization_audit']:
+        hold([finding['label']], 'name_normalization_unverified')
+    pixel_causes = duplicate_breakdown(duplicates, objects, config, mounted) if investigate else None
     for label, state in states.items():
-        if any(not study_links[uid] for uid in state['studies']): state['blockers'].add('study_without_supported_report')
         blockers = state['blockers']
         if any('conflict' in b or 'shared' in b or 'overlapping' in b for b in blockers): status = 'conflicted'
         elif any(b.startswith(('dicom_', 'txt_', 'missing_', 'no_verified', 'identity_missing', 'instance_', 'folder_')) for b in blockers): status = 'incomplete'
@@ -262,7 +270,10 @@ def analyze(manifest, config, mounted):
         counts['identity_' + category + '_unique_patients'] = len(labels)
         counts['identity_' + category + '_unique_studies'] = len({r['study'] for r in affected})
         counts['identity_' + category + '_unique_instance_paths'] = len(affected)
-    return {'counts': dict(counts), 'patients': list(states.values()), 'duplicates': duplicates,
+    return {'analysis_version': 2, 'delivery_unit': 'patient_bundle',
+            'counts': dict(counts), 'patients': list(states.values()), 'duplicates': duplicates,
+            'identity_root_causes': root_causes, 'duplicate_pixel_investigation': pixel_causes,
+            'patient_report_checks': patient_report_checks,
             'identity': identities, 'diagnostics': diagnostics, 'header_rechecks': details,
             'txt_diagnostics': txt_diagnostics,
             'accepted_associations': 0, 'release_allowed': False, 'pixel_validation': 'not_performed'}
@@ -272,6 +283,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', default='/etc/hoag-research/config.json')
     parser.add_argument('--manifest', required=True)
+    parser.add_argument('--investigate', action='store_true', help='Compare pixels of differing duplicate objects locally')
     args = parser.parse_args()
     os.umask(0o077)
     logging.disable(logging.CRITICAL)
@@ -282,12 +294,20 @@ def main():
         if private_root not in path.resolve().parents or any(p.is_symlink() for p in (path, *path.parents)):
             raise base.ReconciliationError('private_manifest_required')
         raw = path.read_bytes()
-        result = analyze(json.loads(raw), config, base.mounts(Path('/proc/self/mountinfo').read_text()))
+        result = analyze(json.loads(raw), config, base.mounts(Path('/proc/self/mountinfo').read_text()), args.investigate)
         result['input_manifest_sha256'] = hashlib.sha256(raw).hexdigest()
         run = base.private_run_directory(config)
         with (run / 'readiness.private.json').open('x', encoding='utf-8') as stream:
             json.dump(result, stream, indent=2)
-        print(json.dumps({'counts': result['counts'], 'accepted_associations': 0, 'release_allowed': False}))
+        print(json.dumps({'counts': result['counts'],
+            'identity_attribute_breakdown': result['identity_root_causes']['aggregate_fields'],
+            'unconfirmed_explanations': result['identity_root_causes']['unconfirmed_explanations'],
+            'normalization_review_unique_patients': len(result['identity_root_causes']['normalization_audit']),
+            'cross_label_identifier_collision_groups': len(result['identity_root_causes']['cross_label_collisions']),
+            'confirmed_cross_patient_conflicts': None,
+            'duplicate_pixel_breakdown': result['duplicate_pixel_investigation']['aggregate'] if args.investigate else None,
+            'image_interpretation_difference_groups': result['duplicate_pixel_investigation']['interpretation_difference_groups'] if args.investigate else None,
+            'accepted_associations': 0, 'release_allowed': False}))
         return 0
     except Exception:
         print(json.dumps({'analysis_completed': False, 'release_allowed': False}))
