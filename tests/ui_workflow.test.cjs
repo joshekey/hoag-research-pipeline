@@ -28,7 +28,7 @@ function fixture(prefs={}){
   if(route.pathname==='/api/health')return response({shares:[]});
   if(route.pathname==='/api/studies')return response({rows:Object.values(studies),total:2});
   if(route.pathname==='/api/report-browser/search'){const body=JSON.parse(options.body);if(body.q==='FAIL')return response({error:'Synthetic source failure'},false);const id=body.q==='Example'?'1.2.4':'1.2.3';return response({groups:[{source:'txt',total:1,rows:[{source:'txt',ref:id==='1.2.3'?'31':'42',path:'Synthetic report '+id,name:studies[id].name}]}],errors:[]});}
-  if(route.pathname==='/api/report-browser/preview'){const body=JSON.parse(options.body);const id=body.ref==='31'||body.ref==='sql-a'?'1.2.3':'1.2.4';return response({source:body.source,ref:body.ref,hash:'synthetic-hash',text:'SYNTHETIC REPORT '+id,identity:{name:studies[id].name}});}
+  if(route.pathname==='/api/report-browser/preview'){const body=JSON.parse(options.body);const id=body.ref==='31'||body.ref==='sql-a'?'1.2.3':'1.2.4';return response({source:body.source,ref:body.ref,hash:'synthetic-hash',text:'SYNTHETIC REPORT '+id,identity:{name:studies[id].name},...prefs.preview});}
   const match=route.pathname.match(/^\/api\/study\/([0-9.]+)(.*)$/);
   if(match){const uid=match[1],action=match[2];
    if(!action)return response(detail(uid));
@@ -76,6 +76,26 @@ test('guided comparison collapses queue and clears report identity on study chan
   assert.match(f.$('guided-comparison').textContent,/Choose a report/);
   assert.doesNotMatch(f.$('guided-comparison').textContent,/Sample Alex/);
   assert.ok(f.$('download-crosswalk'));
+ }finally{f.dom.window.close();}
+});
+
+test('privacy review explains association, preparation and source metadata lists',async()=>{
+ const prefs={preview:{identity:{name:'Sample Alex',modalities:['MR'],anatomy:['spine']},procedure:'MRI lumbar spine'}};
+ const f=fixture(prefs);try{
+  await settle();await f.open('1.2.3');await settle();
+  f.$('next-anonymize').click();await settle();
+  assert.match(f.$('privacy-status').textContent,/Association required/);
+  assert.equal(f.$('prepare-associated-now').disabled,true);
+  f.$('next-reports').click();await settle();f.$('browser-rows').querySelector('button').click();await settle();
+  assert.match(f.$('guided-comparison').textContent,/MR \/ spine \/ MRI lumbar spine/);
+  f.$('browser-confirm').click();f.$('browser-associate').click();await settle();
+  assert.match(f.$('privacy-status').textContent,/Next: select Prepare/);
+  prefs.jobs=[{id:99,kind:'prepare',study_uid:'1.2.3',state:'running',progress:0,message:'Preparing draft',created:1,started:1}];await f.w.refresh();
+  assert.match(f.$('privacy-status').textContent,/Preparing sanitized report/);
+  assert.equal(f.$('sanitized').getAttribute('aria-busy'),'true');
+  prefs.jobs=[];await f.w.refresh();f.$('sanitized').value='Synthetic [REDACTED] draft';f.$('sanitized').dispatchEvent(new f.w.Event('input'));
+  assert.match(f.$('privacy-status').textContent,/Sanitized draft ready/);
+  assert.equal(f.$('redaction-preview').closest('details').open,true);
  }finally{f.dom.window.close();}
 });
 

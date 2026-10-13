@@ -149,7 +149,7 @@ def create_app(config):
         with database(config) as db:
             counts = [dict(r) for r in db.execute('SELECT kind,status,count(*) count,sum(size) bytes FROM files WHERE active=1 GROUP BY kind,status')]
             states = [dict(r) for r in db.execute('SELECT state,count(*) count FROM studies GROUP BY state')]
-            jobs = [dict(r) for r in db.execute('SELECT id,kind,state,progress,message,created,started,finished,phase,cancel_requested FROM jobs ORDER BY id DESC LIMIT 20')]
+            jobs = [dict(r) for r in db.execute("SELECT id,kind,state,progress,message,created,started,finished,phase,cancel_requested,json_extract(payload,'$.uid') study_uid FROM jobs ORDER BY id DESC LIMIT 20")]
             sql = [dict(r) for r in db.execute("SELECT id,path,metadata FROM files WHERE kind='sql' AND active=1 AND status='ok'")]
             exports = [dict(r) for r in db.execute('SELECT id,folder,created,bytes,validated,validation FROM exports ORDER BY id DESC LIMIT 100')]
             settings = dict(db.execute('SELECT key,value FROM settings'))
@@ -396,6 +396,7 @@ def create_app(config):
             images = [dict(r) for r in db.execute("SELECT id,metadata FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=? ORDER BY id", (uid,))]
             report = db.execute('SELECT * FROM files WHERE id=?', (study['report_id'],)).fetchone() if study['report_id'] else None
             linked_studies = db.execute('SELECT count(*) FROM studies WHERE subject=?', (study['subject'],)).fetchone()[0]
+            preparation = db.execute("SELECT id,state,message FROM jobs WHERE kind='prepare' AND json_extract(payload,'$.uid')=? ORDER BY id DESC LIMIT 1", (uid,)).fetchone()
         if report and not any(r['id']==report['id'] for r in candidates):
             candidates.append({'id':report['id'],'path':'Associated '+report['kind']+' report','reason':'manual association'})
         try:
@@ -404,7 +405,7 @@ def create_app(config):
             text=''
             study=dict(study)
             study['last_error']='Associated report unavailable or changed. Browse reports and associate a current record before preparation.'
-        return jsonify(study=dict(study, linked_studies=linked_studies), candidates=candidates, images=images, original_report=text)
+        return jsonify(study=dict(study, linked_studies=linked_studies), candidates=candidates, images=images, original_report=text, preparation=dict(preparation) if preparation else None)
 
     @app.post('/api/jobs')
     def jobs():

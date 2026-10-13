@@ -45,6 +45,7 @@ async function refresh() {
   $('browser-associate').disabled=active()||associationBusy||!uid||!selectedStudy||selectedStudy.uid!==uid||!browserSelection||!$('browser-confirm').checked;
   await list();
   await finishPreparation();
+  updatePrivacyStatus();
  } catch(e){notice(e.message,true);$('workspace-operation').textContent='CONNECTION PROBLEM · '+e.message+' · Refresh or check dashboard service status.';}finally{refreshing=false;}
 }
 function renderActivity() {
@@ -104,7 +105,7 @@ function showWorkspaceScreen(){
  $('next-reports').hidden=!selectedStudy||privacy;$('next-anonymize').hidden=!selectedStudy||privacy;$('next-export').hidden=!privacy;
  if(workbench&&!privacy){if(!selectedStudy&&reportTab==='suggestions')activateReportTab('search');else if(selectedStudy&&reportTab==='search'&&effective==='studies')activateReportTab('suggestions');}
  for(const a of document.querySelectorAll('#primary-navigation a')){const selected=a.getAttribute('href')==='#'+effective;a.setAttribute('aria-selected',String(selected));a.tabIndex=selected?0:-1;}
- updateExportSelection();window.scrollTo(0,0);
+ updateExportSelection();updatePrivacyStatus();window.scrollTo(0,0);
 }
 window.addEventListener('hashchange',showWorkspaceScreen);
 function makeStudyReviewPrimary(){
@@ -133,12 +134,14 @@ async function openStudy(value, target='#studies') {
  const generation=++reviewRequest;uid=value;
  clearActiveStudy();
  updateSelectedStudyBanner(null);
+ $('privacy-status').textContent='Loading the selected study and its associated report…';$('privacy-status').setAttribute('aria-busy','true');
  $('sql-patient-name').value='';
  try{const d=await api('/api/study/'+encodeURIComponent(value));if(generation!==reviewRequest)return;
  $('review-report-match-results').replaceChildren();
  $('review-report-match-status').textContent='Searching TXT and SQL reports for this selected study…';
  $('sql-candidate-list').replaceChildren();$('sql-candidate-original').value='';$('sql-candidate-summary').textContent='Select Find SQL candidates to inspect SQL-backed reports. No match is approved automatically.';
  selectedStudy=d.study;selectedStudy.image_identity=d.images.length?JSON.parse(d.images[0].metadata):{};updateSelectedStudyBanner(d.study);
+ if(d.preparation&&['queued','running'].includes(d.preparation.state))preparedJob={id:d.preparation.id,uid:value};
  $('guided-queue').open=false;
  for(const row of $('study-rows').children)row.classList.toggle('selected-study',row.dataset.studyUid===uid);
  void loadSuggestions();$('browser-query').value=(d.study.name||'').split('^')[0].split(',')[0];browserOffset=0;void browseReports().catch(e=>notice(e.message,true));
@@ -291,6 +294,8 @@ function addReport(r) {const o=el('option',(r.reason?r.reason+' - ':'Manual sele
 async function candidateText(){const selected=$('report-choice').value,study=uid,generation=reviewRequest;if(!selected){$('original').value='';return;}const report=await api('/api/report/'+selected);if(generation===reviewRequest&&selected===$('report-choice').value&&study===uid)$('original').value=report.text;}
 
 function highlight() {
+ updatePrivacyStatus();
+ if(!$('sanitized').value){$('redaction-preview').textContent='No sanitized draft is ready yet. Follow the preparation status above.';$('redaction-summary').textContent='Awaiting sanitized report preparation.';return;}
  const text=$('sanitized').value;const parts=text.split('[REDACTED]');$('redaction-preview').replaceChildren();parts.forEach((part,i)=>{if(i)$('redaction-preview').append(el('mark','[REDACTED]'));$('redaction-preview').append(document.createTextNode(part));});$('redaction-summary').textContent=(parts.length-1)+' proposed redactions. Review the original and sanitized report; edits do not approve it.';
 }
 function setupDicomSeries(images){
@@ -608,8 +613,12 @@ async function loadTXTCandidates(manual=false){
  }catch(error){if(serial===txtSerial&&study===uid&&generation===reviewRequest)$('txt-coverage').textContent='TXT search unavailable: '+error.message;}
 }
 async function prepareSelectedReport(reportID){
- const study=uid,result=await queue('prepare',{uid:study,report_id:reportID});
- if(result)preparedJob={id:result.id,uid:study};
+ if(preparingRequest)return;
+ if(!selectedStudy?.report_id||Number(selectedStudy.report_id)!==reportID){notice('Associate this report before preparing its sanitized draft.',true);updatePrivacyStatus();return;}
+ const study=uid;preparingRequest=true;updatePrivacyStatus();
+ try{const result=await queue('prepare',{uid:study,report_id:reportID});
+ if(result){preparedJob={id:result.id,uid:study};await finishPreparation();}
+ }finally{preparingRequest=false;updatePrivacyStatus();}
 }
 async function finishPreparation(){
  if(!preparedJob)return;const job=latest.jobs.find(j=>j.id===preparedJob.id);
@@ -626,3 +635,4 @@ function updateExportSelection(){
 }
 
 setupResearchWorkspace();setupReportBrowser();setupWorkflowPanels();makeStudyReviewPrimary();setupWorkbench();showWorkspaceScreen();checkSQLReadiness();refresh();health();loadResearchQueue();setInterval(refresh,10000);setInterval(()=>{health();checkSQLReadiness();},60000);
+setInterval(()=>{if(preparedJob)void refresh();},2000);

@@ -14,6 +14,21 @@ class WorkbenchTests(unittest.TestCase):
     setUp=workflow.WorkflowTests.setUp
     client=tabbed.TabbedWorkflowTests.client
 
+    def test_sql_preview_metadata_uses_its_source_and_procedure(self):
+        import report_browser
+        source={'source':'sql','ref':'synthetic','text':'Patient Name: Sample, Alex\nDOB: 01/02/1970\nExam Date: 03/04/2020\nMRN: ABC123\nAccession: XYZ456\nFindings: synthetic.', 'hash':'unchanged','procedure':'MRI lumbar spine'}
+        with patch('report_browser.request_broker',return_value=source):
+            result=report_browser.preview(self.config,'sql','synthetic')
+        identity=result['identity']
+        self.assertTrue(identity['name'])
+        self.assertEqual(identity['dob'],'19700102')
+        self.assertEqual(identity['patient_id'],'ABC123')
+        self.assertEqual(identity['accession'],'XYZ456')
+        self.assertTrue(identity['modalities'])
+        self.assertTrue(identity['anatomy'])
+        self.assertEqual(result['hash'],'unchanged')
+        self.assertEqual(result['text'],source['text'])
+
     def test_sql_browser_restores_radiology_layout_without_changing_source(self):
         import report_browser
         raw='<Envelope><notes>CT CHEST</notes><notes>FINDINGS: Synthetic finding.</notes><notes>IMPRESSION: Synthetic conclusion.</notes></Envelope>'

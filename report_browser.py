@@ -39,6 +39,14 @@ def preview(config, source, ref):
         from report_format import format_report
         result=dict(request_broker({'action':'browse_preview','token':ref}))
         result['formatted'],result['format_status']=format_report(result['text'])
+        # Older broker responses may omit evidence that is present in the narrative.
+        extracted=evidence(result['text'])
+        supplied=result.get('identity') or {}
+        result['identity']={key: supplied.get(key) or value for key,value in extracted.items()}
+        result['identity'].update({key:value for key,value in supplied.items() if value})
+        procedure=evidence(result.get('procedure',''))
+        for key in ('modalities','anatomy'):
+            result['identity'][key]=sorted(set(result['identity'].get(key,[]))|set(procedure[key]))
         return result
     if source!='txt': raise ValueError('Invalid report source')
     with database(config) as db:

@@ -80,6 +80,12 @@ function setupGuidedComparison(shell,browser,canvas){
  const identity=el('p');identity.id='export-identity';context.append(identity);
  const compare=el('div');compare.id='guided-comparison';context.append(compare);
  shell.prepend(drawer,context);
+ const privacyStatus=el('div',undefined,'privacy-status');privacyStatus.id='privacy-status';privacyStatus.setAttribute('role','status');
+ const prepareNow=button('Prepare sanitized report',safely(()=>prepareSelectedReport(Number(selectedStudy?.report_id))),false);prepareNow.id='prepare-associated-now';
+ $('privacy-dock').prepend(privacyStatus,prepareNow);
+ const originalDetails=el('details',undefined,'original-source');originalDetails.append(el('summary','Original associated report (identifying source)'),$('txt-original-panel'));prepareNow.after(originalDetails);
+ $('redaction-preview').closest('details').open=true;
+ $('sanitized').placeholder='The sanitized draft will appear here after preparation finishes.';
  const imageTools=el('details',undefined,'image-advanced');imageTools.append(el('summary','Choose image series or frame'));
  const seriesToolbar=$('dicom-series').closest('.toolbar');seriesToolbar.before(imageTools);imageTools.append(seriesToolbar);
  const privacyTools=$('masks').closest('details');privacyTools.append($('draw-mask').closest('label'),$('undo-mask'));
@@ -123,10 +129,24 @@ function renderGuidedComparison(){
  const table=el('table'),head=el('thead'),hr=el('tr');
  ['Check','Image record','Report record'].forEach(t=>hr.append(el('th',t)));head.append(hr);table.append(head);
  const body=el('tbody');
- for(const [label,left,right] of [['Patient',displayPatient(s.name),displayPatient(r.name)],['MRN / Patient ID',s.patient,r.patient_id||r.mrn],['Date of birth',m.PatientBirthDate,r.dob],['Exam date',s.date,r.exam_date],['Exam / body area',[s.modality,m.BodyPartExamined].filter(Boolean).join(' / '),r.modality||r.body_part||r.description],['Accession',s.accession,r.accession]]){
+ for(const [label,left,right] of [['Patient',displayPatient(s.name),displayPatient(r.name)],['MRN / Patient ID',s.patient,r.patient_id||r.mrn],['Date of birth',m.PatientBirthDate,r.dob],['Exam date',s.date,r.exam_date],['Exam / body area',[s.modality,m.BodyPartExamined].filter(Boolean).join(' / '),[...(r.modalities||[]),...(r.anatomy||[]),browserSelection?.procedure||r.description||r.modality||r.body_part].filter(Boolean).join(' / ')],['Accession',s.accession,r.accession]]){
   const tr=el('tr');[label,left||'Not available',right||(browserSelection?'Not available — verify source':'Choose a report')].forEach(v=>tr.append(el('td',v)));body.append(tr);
  }
  table.append(body);box.append(table,el('p','Compare both original records. Missing details or differences require investigation; a suggestion is not a verified match.','muted'));
+ if(browserSelection?.date&&!r.exam_date)box.append(el('p','Report result date: '+browserSelection.date+' (not a verified examination date).','muted'));
+}
+
+let preparingRequest=false;
+function updatePrivacyStatus(){
+ const status=$('privacy-status');if(!status)return;
+ const study=selectedStudy,job=latest?.jobs?.find(j=>j.kind==='prepare'&&(j.study_uid===uid||j.id===preparedJob?.id));
+ const working=preparingRequest||Boolean(job&&['queued','running'].includes(job.state))||Boolean(!job&&preparedJob?.uid===uid);
+ let message=!study?'Choose a study first.':!study.report_id?'Association required: choose a report, compare the patient and examination, then confirm Associate report.':working?'Preparing sanitized report — '+(job?.message||'request submitted; please wait')+'. This can take time; the draft will appear automatically.':study.last_error?'Preparation needs attention: '+study.last_error:!$('sanitized').value?'Report associated. Next: select Prepare sanitized report. No sanitized draft is ready yet.':'Sanitized draft ready below. Review the highlighted draft and every image before approval.';
+ if(job&&['failed','cancelled'].includes(job.state)&&!$('sanitized').value)message='Preparation '+job.state+': '+job.message+'. Retry preparation after resolving the issue.';
+ status.textContent=message;status.setAttribute('aria-busy',String(working));
+ $('prepare-associated-now').disabled=!study?.report_id||active()||working;
+ $('prepare-associated-now').hidden=Boolean(study?.sanitized)&&!working;
+ $('sanitized').setAttribute('aria-busy',String(working));
 }
 
 async function checkSQLReadiness(){

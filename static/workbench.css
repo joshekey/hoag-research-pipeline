@@ -73,6 +73,7 @@ button,input,select,textarea{font-family:inherit}button{transition:background .1
 @media(max-width:620px){#research-workbench{display:flex}.study-browser{max-height:300px}.image-workspace{height:760px;min-height:760px}#image-pane{overflow:hidden}#image-viewport{min-height:260px;max-height:none}.report-workspace{min-height:0}}
 
 /* 1.50 Guided comparison: one page scroll, two generous working panes. */
+.privacy-status{background:#deedff;color:#153758;padding:16px;border:1px solid #aacced;border-radius:8px;margin:0 0 12px;font-size:15px;line-height:1.6}#prepare-associated-now{margin-bottom:16px}#privacy-dock .original-source{margin:16px 0}#privacy-dock #sanitized{min-height:320px}#privacy-dock [aria-busy=true]{border-color:#0866c6}
 :root{--bg:#edf5ff;--border:#c8dcf3;--text:#153758;--muted:#4b6888;--line:#c8dcf3}
 .top-brand{background:#123f70;color:#fff}.top-brand span{color:#d8eaff}
 button{background:#0866c6;color:#fff}button.secondary{background:#e6f1ff;color:#175b9e;border-color:#c8dcf3}
