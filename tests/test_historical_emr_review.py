@@ -52,7 +52,9 @@ class HistoricalEMRReviewTests(unittest.TestCase):
         self.assertIn("historicalSelectedToken=lead.token",js)
         self.assertIn("serial!==historicalSelectionSerial",js)
         self.assertIn("preview.historical_study_ref!==lead.study_ref",js)
-        self.assertIn("frame.removeAttribute('src')",js)
+        self.assertIn("$('historical-ohif-iframe').removeAttribute('src')",js)
+        self.assertIn("if(!historicalViewerUrl||!historicalSelectedToken)return",js)
+        self.assertIn("window.open(historicalViewerUrl,'_blank','noopener,noreferrer')",js)
 
     def test_txt_preparation_is_secondary_and_validated(self):
         root=Path(__file__).resolve().parents[1]
