@@ -1,4 +1,4 @@
-# DICOM-first restricted staging â€” version 1.50
+# DICOM-first restricted staging — version 1.50
 
 This is a proposed profile and hospital-local staging implementation, not a
 release-approved deidentification system. No export/release command exists.
