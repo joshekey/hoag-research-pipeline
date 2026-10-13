@@ -89,9 +89,52 @@ database, change fstab, remove credentials or revert mounts for this rollback.
   reachable through the imaging share as well as through the output mount.
 * Inspect DICOM headers only, without reindexing. Record instance counts, missing
   identifiers, duplicate SOP UIDs, cross-patient Study UID reuse, inconsistent
-  patient/examination headers and directory read errors. The default discovery
-  limit is 250,000 files; reaching it makes the run incomplete. An operator can
-  explicitly raise `--max-files` after reviewing storage scope.
+  patient/examination headers and directory read errors. Discovery has no default
+  file-count limit (`--max-files 0`). An optional positive `--max-files` limit can
+  bound a test run; exceeding it makes that run incomplete. Negative limits are
+  rejected. Large runs still require sufficient memory and private report space.
+
+## Second-pass patient readiness
+
+Install `batch_readiness.py` alongside `batch_reconcile.py`. Run as hoag-indexer:
+
+```bash
+cd /opt/hoag-research
+sudo -u hoag-indexer /opt/hoag-research/venv/bin/python batch_readiness.py \
+  --manifest /var/lib/hoag-research/batch-reconciliation/run-REPLACE/manifest.private.json
+```
+
+Use the completed reconciliation run's actual private path on the hospital only.
+The command prints aggregate counts only. Its `readiness.private.json` is saved
+in a new private run directory alongside the reconciliation runs. No source,
+index, association, approval, or export is changed.
+
+The analyzer rereads every inventoried header and hashes duplicate-SOP objects
+in full. Equal bytes within one patient/study/series are harmless copies for
+readiness purposes; nothing is deleted. Different bytes remain unresolved:
+they can represent different encoding or different content, so this is not
+automatically a confirmed clinical identity conflict. Cross-patient/study/series
+reuse always blocks readiness. Changed and unreadable sources remain blocked.
+
+Identity fields are classified as consistent, formatting-only, missing, invalid,
+or conflicting populated values. Populated differences are metadata conflicts,
+not proof of two different real people. Missing identity fields remain held.
+The private output includes folder access rechecks, unreadable-header rechecks,
+TXT index-candidate access and saved-scope probes. Missing Windows path mappings
+still require an administrator's verified prefix mapping; no search is guessed.
+
+Each patient receives one status: conflicted, incomplete, pending, or
+verified_for_anonymization_review (in that precedence). Verified requires all
+inventoried identity and membership checks plus independently supported links
+covering every study and mapped report. This conservative complete-patient rule
+does not authorize partial delivery. Unrelated candidate comparisons do not
+block otherwise supported links. Original nonspecific exceptions stay held.
+Category counts of affected patients/studies/paths overlap; do not add them.
+Unique instance paths are physical files, not unique SOP objects. No pixel
+decoding or anonymization validation is claimed, even when full bytes are hashed.
+
+Rollback: stop using the standalone analyzer. No database rollback or remount is
+needed. Existing private reports and all originals remain unchanged.
 
 ## Association rules and review
 

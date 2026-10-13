@@ -78,6 +78,16 @@ class BatchReconciliationTests(unittest.TestCase):
         self.assertEqual(batch.association(meta,report,'Another Patient')['status'],'review_required')
         self.assertEqual(batch.association(meta,dict(report,name_conflict=True),'Alex Sample')['status'],'review_required')
 
+    def test_discovery_limit_is_optional_and_negative_values_are_rejected(self):
+        self.setup_batch()
+        (self.sources[0]/'extra.txt').write_text('synthetic non-DICOM file')
+        self.assertEqual(self.run_batch()['mode'], 'dry_run_only')
+        self.assertEqual(self.run_batch(max_files=0)['mode'], 'dry_run_only')
+        with self.assertRaisesRegex(batch.ReconciliationError, 'file_discovery_limit_reached'):
+            self.run_batch(max_files=1)
+        with self.assertRaisesRegex(batch.ReconciliationError, 'invalid_file_discovery_limit'):
+            self.run_batch(max_files=-1)
+
     def test_missing_files_blank_locations_and_folder_are_distinct(self):
         self.setup_batch()
         workbook(self.maps/'ScannedDocs.xlsx',[['docid','PatientId','TextFileLocation'],

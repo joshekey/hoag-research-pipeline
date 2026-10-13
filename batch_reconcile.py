@@ -199,7 +199,9 @@ def report_evidence(text):
     return info
 
 
-def reconcile(config, mapping_dir, mounted, path_maps=(), max_files=250000):
+def reconcile(config, mapping_dir, mounted, path_maps=(), max_files=0):
+    if max_files < 0:
+        raise ReconciliationError('invalid_file_discovery_limit')
     issues, counts = [], Counter()
     def issue(code, **details):
         counts[code] += 1
@@ -341,7 +343,7 @@ def reconcile(config, mapping_dir, mounted, path_maps=(), max_files=250000):
             dirs[:] = kept
             for name in names:
                 walked += 1
-                if walked > max_files: raise ReconciliationError('file_discovery_limit_reached')
+                if max_files and walked > max_files: raise ReconciliationError('file_discovery_limit_reached')
                 path = Path(directory)/name
                 try:
                     source_checked(path, roots, output, mounted)
@@ -447,8 +449,11 @@ def main():
     parser.add_argument('--config', default='/etc/hoag-research/config.json')
     parser.add_argument('--crosswalk-dir', default='/home/sratai/crosswalk')
     parser.add_argument('--path-map', help='Private JSON list of explicit windows_prefix/linux_prefix translations')
-    parser.add_argument('--max-files', type=int, default=250000)
+    parser.add_argument('--max-files', type=int, default=0,
+                        help='Optional discovery limit; 0 means unlimited (default)')
     args = parser.parse_args()
+    if args.max_files < 0:
+        parser.error('--max-files must be zero (unlimited) or positive')
     os.umask(0o077)
     logging.disable(logging.CRITICAL)
     try:
