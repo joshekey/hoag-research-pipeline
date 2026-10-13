@@ -268,11 +268,12 @@ def scan(config, job=None, folders=None, force=False, add_reports=False):
                             if re.search(pattern, header, re.M | re.I)), 'Unknown')}
                         status = 'ok'
                     else:
-                        ds = pydicom.dcmread(path, stop_before_pixels=True, specific_tags=TAGS)
+                        ds = pydicom.dcmread(path, stop_before_pixels=True, specific_tags=TAGS + ['StudyDescription'])
                         kind = 'dicom'
                         if not all(ds.get(tag) for tag in ('StudyInstanceUID', 'SeriesInstanceUID', 'SOPInstanceUID')):
                             raise ValueError('Missing DICOM identifiers')
                         meta = {tag: str(ds.get(tag, '')) for tag in TAGS}
+                        meta['StudyDescription'] = str(ds.get('StudyDescription', ''))
                         status = 'ok'
                     after = path.stat()
                     if (after.st_size, after.st_mtime_ns) != (stat.st_size, stat.st_mtime_ns):

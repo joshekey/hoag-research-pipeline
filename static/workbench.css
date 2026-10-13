@@ -89,6 +89,8 @@ button{background:#0866c6;color:#fff}button.secondary{background:#e6f1ff;color:#
 #export-identity{padding:10px 14px;border-radius:8px;background:#deedff;color:#175b9e;overflow-wrap:anywhere}#export-identity:empty{display:none}
 #guided-comparison th{background:#deedff;color:#345e88}#guided-comparison td{overflow-wrap:anywhere;width:33%}#guided-comparison p{margin-bottom:0}
 #guided-comparison th,#guided-comparison td{padding:7px 10px;border-color:#c8dcf3}#guided-comparison th{letter-spacing:.4px}.guided-context{padding:16px 20px}
+#guided-comparison tbody tr:hover{background:#eef6ff;color:#153758}
+#guided-comparison ::selection{background:#c8e2ff;color:#153758}
 .image-workspace{height:auto;min-height:0}.report-workspace{grid-column:auto;overflow:visible;padding:22px;min-height:0;background:#fff}
 #image-pane{overflow:visible;background:#103354;padding:20px}#image-pane h3{font-size:17px}
 #image-pane label,#image-pane .muted,#image-pane>p{font-size:12px}#image-pane select,#image-pane .toolbar button{font-size:13px}

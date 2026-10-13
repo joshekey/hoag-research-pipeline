@@ -397,6 +397,20 @@ def create_app(config):
             report = db.execute('SELECT * FROM files WHERE id=?', (study['report_id'],)).fetchone() if study['report_id'] else None
             linked_studies = db.execute('SELECT count(*) FROM studies WHERE subject=?', (study['subject'],)).fetchone()[0]
             preparation = db.execute("SELECT id,state,message FROM jobs WHERE kind='prepare' AND json_extract(payload,'$.uid')=? ORDER BY id DESC LIMIT 1", (uid,)).fetchone()
+            description_source = db.execute('SELECT * FROM files WHERE id=?', (images[0]['id'],)).fetchone() if images else None
+        # Older catalogs lack StudyDescription. Read only the selected header;
+        # do not rewrite metadata/fingerprints, invalidate approvals, or reindex.
+        if images:
+            metadata = json.loads(images[0]['metadata'])
+            if 'StudyDescription' not in metadata:
+                try:
+                    header = pydicom.dcmread(engine.source_path(config, description_source),
+                        stop_before_pixels=True, specific_tags=['StudyInstanceUID','StudyDescription'])
+                    if str(header.get('StudyInstanceUID','')) == uid:
+                        metadata['StudyDescription'] = str(header.get('StudyDescription',''))
+                except (ValueError, OSError, pydicom.errors.InvalidDicomError):
+                    pass  # Source unavailable: leave description explicitly missing.
+                images[0]['metadata'] = json.dumps(metadata)
         if report and not any(r['id']==report['id'] for r in candidates):
             candidates.append({'id':report['id'],'path':'Associated '+report['kind']+' report','reason':'manual association'})
         try:

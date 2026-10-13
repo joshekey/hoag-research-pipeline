@@ -1,10 +1,27 @@
 """Authenticated, source-independent discovery and deliberate manual association."""
 import json
+import re
 import time
 import engine
 from store import database, idle, audit, token
 from sql_gui_candidates import request_broker
 from research_matching import evidence
+
+
+def exam_description(value):
+    """Display the report's own labeled exam or title, never a DICOM-derived guess."""
+    from report_format import format_report
+    formatted,_=format_report(value)
+    for line in formatted.splitlines()[:40]:
+        line=line.strip()
+        if re.match(r'^(FINDINGS|IMPRESSION|CLINICAL HISTORY|HISTORY|TECHNIQUE)\b',line,re.I):
+            break
+        labeled=re.match(r'^(?:EXAM(?:INATION)?(?: DESCRIPTION)?|STUDY DESCRIPTION|PROCEDURE(?: NAME)?|EXAM TYPE)\s*:\s*(.+)$',line,re.I)
+        if labeled:
+            return labeled[1].strip()
+        if len(line)<=200 and re.match(r'^(?:MRI|MR|CT|US|ULTRASOUND|XR|X-RAY|RADIOGRAPH|MAMMOGRAM|PET)\s+[^:]+$',line,re.I):
+            return line
+    return ''
 
 
 def search(config, body):
@@ -39,6 +56,7 @@ def preview(config, source, ref):
         from report_format import format_report
         result=dict(request_broker({'action':'browse_preview','token':ref}))
         result['formatted'],result['format_status']=format_report(result['text'])
+        result['exam_description']=exam_description(result['text'])
         # Older broker responses may omit evidence that is present in the narrative.
         extracted=evidence(result['text'])
         supplied=result.get('identity') or {}
@@ -54,7 +72,7 @@ def preview(config, source, ref):
     if not row: raise ValueError('Report unavailable')
     value,hash_value=engine.read_report(config,row)
     if hash_value!=json.loads(row['metadata'])['hash']: raise ValueError('Report changed; reindex')
-    return {'source':'txt','ref':str(row['id']),'text':value,'hash':hash_value,'identity':evidence(value,str(row['path'])),'path':row['path']}
+    return {'source':'txt','ref':str(row['id']),'text':value,'hash':hash_value,'identity':evidence(value,str(row['path'])),'path':row['path'],'exam_description':exam_description(value)}
 
 
 def associate(config, uid, body, actor):

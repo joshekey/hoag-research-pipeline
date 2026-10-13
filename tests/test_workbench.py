@@ -1,6 +1,8 @@
 import unittest
 import re
 import shlex
+import json
+import pydicom
 from pathlib import Path
 from unittest.mock import patch
 import engine
@@ -13,6 +15,30 @@ from webapp import create_app
 class WorkbenchTests(unittest.TestCase):
     setUp=workflow.WorkflowTests.setUp
     client=tabbed.TabbedWorkflowTests.client
+
+    def test_older_catalog_loads_study_description_without_reindex_or_catalog_change(self):
+        ds=pydicom.dcmread(self.path)
+        ds.StudyDescription='CT CHEST WITHOUT CONTRAST'
+        ds.save_as(self.path,enforce_file_format=True)
+        engine.scan(self.config)
+        with database(self.config) as db:
+            row=db.execute("SELECT id,metadata FROM files WHERE kind='dicom'").fetchone()
+            metadata=json.loads(row['metadata']);metadata.pop('StudyDescription')
+            db.execute('UPDATE files SET metadata=? WHERE id=?',(json.dumps(metadata),row['id']))
+            before=dict(db.execute('SELECT * FROM studies WHERE uid=?',(self.uid,)).fetchone())
+        client,auth=self.client()
+        with patch('engine.scan',side_effect=AssertionError('No reindex')):
+            response=client.get('/api/study/'+self.uid,headers=auth).get_json()
+        self.assertEqual(json.loads(response['images'][0]['metadata'])['StudyDescription'],'CT CHEST WITHOUT CONTRAST')
+        with database(self.config) as db:
+            self.assertEqual(before,dict(db.execute('SELECT * FROM studies WHERE uid=?',(self.uid,)).fetchone()))
+            self.assertNotIn('StudyDescription',json.loads(db.execute('SELECT metadata FROM files WHERE id=?',(row['id'],)).fetchone()[0]))
+
+    def test_exam_description_is_source_text_not_clinical_findings(self):
+        from report_browser import exam_description
+        self.assertEqual(exam_description('Patient: Sample\nEXAM: MRI lumbar spine without contrast\nFINDINGS: test'),'MRI lumbar spine without contrast')
+        self.assertEqual(exam_description('CT CHEST WITHOUT CONTRAST\nFINDINGS: test'),'CT CHEST WITHOUT CONTRAST')
+        self.assertEqual(exam_description('FINDINGS:\nCT chest recommended later'), '')
 
     def test_sql_preview_metadata_uses_its_source_and_procedure(self):
         import report_browser

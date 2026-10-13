@@ -88,6 +88,9 @@ test('privacy review explains association, preparation and source metadata lists
   assert.equal(f.$('prepare-associated-now').disabled,true);
   f.$('next-reports').click();await settle();f.$('browser-rows').querySelector('button').click();await settle();
   assert.match(f.$('guided-comparison').textContent,/MR \/ spine \/ MRI lumbar spine/);
+  const examRow=[...f.$('guided-comparison').querySelectorAll('tr')].find(row=>row.firstChild.textContent==='Study / exam description');
+  assert.equal(examRow.lastChild.textContent,'MRI lumbar spine');
+  assert.equal(examRow.children[1].textContent,'Not available in DICOM');
   f.$('browser-confirm').click();f.$('browser-associate').click();await settle();
   assert.match(f.$('privacy-status').textContent,/Next: select Prepare/);
   prefs.jobs=[{id:99,kind:'prepare',study_uid:'1.2.3',state:'running',progress:0,message:'Preparing draft',created:1,started:1}];await f.w.refresh();

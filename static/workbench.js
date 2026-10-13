@@ -133,6 +133,10 @@ function renderGuidedComparison(){
   const tr=el('tr');[label,left||'Not available',right||(browserSelection?'Not available — verify source':'Choose a report')].forEach(v=>tr.append(el('td',v)));body.append(tr);
  }
  table.append(body);box.append(table,el('p','Compare both original records. Missing details or differences require investigation; a suggestion is not a verified match.','muted'));
+ const descriptionRow=el('tr');
+ const descriptions=[...new Set([browserSelection?.exam_description,browserSelection?.procedure].filter(Boolean))].join(' / ');
+ ['Study / exam description',m.StudyDescription||'Not available in DICOM',descriptions||(browserSelection?'Not available in report — verify source':'Choose a report')].forEach(value=>descriptionRow.append(el('td',value)));
+ body.insertBefore(descriptionRow,body.children[4]);
  if(browserSelection?.date&&!r.exam_date)box.append(el('p','Report result date: '+browserSelection.date+' (not a verified examination date).','muted'));
 }
 
