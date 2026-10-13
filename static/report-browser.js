@@ -1,6 +1,7 @@
 /* Report identity is independent of study selection; requests never imply a match. */
 let browserSerial=0,browserSelection=null,browserOffset=0,associationBusy=false;
 function renderDiagnosticReport(result){
+ renderGuidedComparison();
  const view=$('diagnostic-report');if(!view)return;view.replaceChildren();
  if(!result){view.append(el('p','Select a report to read its diagnostic narrative.','muted'));return;}
  view.append(el('h3','Diagnostic radiology report'));
@@ -56,7 +57,8 @@ function setupReportBrowser(){
   if(associationBusy)return;associationBusy=true;$('browser-associate').disabled=true;notice('Associating the selected report. Please wait…');
   try{await api('/api/study/'+encodeURIComponent(study)+'/report-association',{source:selection.source,ref:selection.ref,hash:selection.hash,confirm:$('browser-confirm').checked,note:$('browser-note').value});
   if(serial!==browserSerial||study!==uid||generation!==reviewRequest)return;
-  await openStudy(study,'#review');void loadResearchQueue();notice('Report associated. Prepare and review de-identification before approval and export.');
+  if($('associate-next').checked){await openNextAssociation(true);void loadResearchQueue();notice('Report associated. Privacy review and export approval remain separate.');}
+  else{await openStudy(study,'#review');void loadResearchQueue();notice('Report associated. Prepare and review de-identification before approval and export.');}
   }finally{associationBusy=false;$('browser-associate').disabled=!uid||!selectedStudy||selectedStudy.uid!==uid||!browserSelection||!$('browser-confirm').checked||active();}
  });
  $('reindex-catalog').onclick=safely(async()=>{if(!$('reindex-confirm').checked)throw Error('Confirm reindexing first');await queue('reindex');});

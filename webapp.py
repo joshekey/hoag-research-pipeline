@@ -15,6 +15,7 @@ from PIL import Image
 from werkzeug.security import check_password_hash
 
 import engine
+import patient_identity
 import sql_gui_candidates
 import sql_association
 import sql_prepare_review
@@ -156,6 +157,15 @@ def create_app(config):
         version = Path(__file__).with_name('VERSION').read_text().strip()
         return jsonify(version=version, counts=counts, states=states, jobs=jobs, sql=sql, exports=exports, settings=settings, modalities=modalities, now=time.time(),
                        sources=config['source_roots'], output=config['output_root'])
+
+    @app.post('/api/exports/crosswalk')
+    def download_crosswalk():
+        # Existing authenticated hospital operator + CSRF protection applies.
+        with database(config) as db:
+            content = patient_identity.crosswalk_csv(db)
+            audit(db, config['username'], 'download-patient-crosswalk')
+        return Response(content, content_type='text/csv; charset=utf-8', headers={
+            'Content-Disposition': 'attachment; filename="patient-crosswalk.csv"'})
 
     @app.get('/api/studies')
     def studies():
@@ -385,6 +395,7 @@ def create_app(config):
             candidates = [dict(r) for r in db.execute('SELECT f.id,f.path,c.reason FROM candidates c JOIN files f ON f.id=c.report WHERE c.study=?', (uid,))]
             images = [dict(r) for r in db.execute("SELECT id,metadata FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=? ORDER BY id", (uid,))]
             report = db.execute('SELECT * FROM files WHERE id=?', (study['report_id'],)).fetchone() if study['report_id'] else None
+            linked_studies = db.execute('SELECT count(*) FROM studies WHERE subject=?', (study['subject'],)).fetchone()[0]
         if report and not any(r['id']==report['id'] for r in candidates):
             candidates.append({'id':report['id'],'path':'Associated '+report['kind']+' report','reason':'manual association'})
         try:
@@ -393,7 +404,7 @@ def create_app(config):
             text=''
             study=dict(study)
             study['last_error']='Associated report unavailable or changed. Browse reports and associate a current record before preparation.'
-        return jsonify(study=dict(study), candidates=candidates, images=images, original_report=text)
+        return jsonify(study=dict(study, linked_studies=linked_studies), candidates=candidates, images=images, original_report=text)
 
     @app.post('/api/jobs')
     def jobs():

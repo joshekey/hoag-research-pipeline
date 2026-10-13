@@ -119,6 +119,7 @@ function updateSelectedStudyBanner(study){
  const banner=$('current-study-banner');
  if(!banner)return;
  banner.replaceChildren();
+ renderGuidedComparison();
  if(!study){
    banner.textContent='No DICOM study selected. Choose Review beside a study below.';
    return;
@@ -137,7 +138,8 @@ async function openStudy(value, target='#studies') {
  $('review-report-match-results').replaceChildren();
  $('review-report-match-status').textContent='Searching TXT and SQL reports for this selected study…';
  $('sql-candidate-list').replaceChildren();$('sql-candidate-original').value='';$('sql-candidate-summary').textContent='Select Find SQL candidates to inspect SQL-backed reports. No match is approved automatically.';
- selectedStudy=d.study;updateSelectedStudyBanner(d.study);
+ selectedStudy=d.study;selectedStudy.image_identity=d.images.length?JSON.parse(d.images[0].metadata):{};updateSelectedStudyBanner(d.study);
+ $('guided-queue').open=false;
  for(const row of $('study-rows').children)row.classList.toggle('selected-study',row.dataset.studyUid===uid);
  void loadSuggestions();$('browser-query').value=(d.study.name||'').split('^')[0].split(',')[0];browserOffset=0;void browseReports().catch(e=>notice(e.message,true));
  $('sql-patient-name').value=d.study.name||'';

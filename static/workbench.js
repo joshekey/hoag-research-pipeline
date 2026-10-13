@@ -69,6 +69,64 @@ function setupWorkbench(){
  $('next-anonymize').textContent='Continue to privacy review →';
  $('next-export').textContent='Continue to export →';
  document.querySelector('footer').textContent='HOAG Research · Restricted workspace · Processing stays on this server';
+ setupGuidedComparison(shell,browser,canvas);
+}
+
+function setupGuidedComparison(shell,browser,canvas){
+ const drawer=el('details');drawer.id='guided-queue';drawer.open=true;
+ drawer.append(el('summary','Study queue · Choose or change examination'),browser);
+ const context=el('div',undefined,'guided-context');context.id='guided-context';
+ context.append($('current-study-banner'));
+ const identity=el('p');identity.id='export-identity';context.append(identity);
+ const compare=el('div');compare.id='guided-comparison';context.append(compare);
+ shell.prepend(drawer,context);
+ const imageTools=el('details',undefined,'image-advanced');imageTools.append(el('summary','Choose image series or frame'));
+ const seriesToolbar=$('dicom-series').closest('.toolbar');seriesToolbar.before(imageTools);imageTools.append(seriesToolbar);
+ const privacyTools=$('masks').closest('details');privacyTools.append($('draw-mask').closest('label'),$('undo-mask'));
+ $('image-empty').querySelector('p').textContent='Choose an examination from the study queue above. Compare its patient and exam details with an independent report before associating.';
+ const skip=button('Skip to next unassociated study',safely(openNextAssociation));skip.id='guided-skip';canvas.querySelector('.workbench-actions').prepend(skip);
+ const nextLabel=el('label',undefined,'check'),next=el('input');next.type='checkbox';next.id='associate-next';
+ nextLabel.append(next,document.createTextNode(' After association, open the next unassociated study'));
+ $('browser-associate').after(nextLabel);
+ const downloads=el('div',undefined,'panel');downloads.append(el('h3','Patient identity crosswalk'),el('p','Restricted identifying data: original patient names and MRNs mapped to anonymous names and IDs. One row per completed export. Download separately from research packages. Older exports without a recorded mapping are explicitly marked.'));
+ const download=button('Download patient crosswalk (CSV)',safely(async()=>{
+  download.disabled=true;
+  try{const response=await fetch('/api/exports/crosswalk',{method:'POST',headers:{'X-CSRF-Token':csrf}});
+   if(!response.ok)throw Error('Crosswalk download failed');
+   const url=URL.createObjectURL(await response.blob()),a=el('a');a.href=url;a.download='patient-crosswalk.csv';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+   notice('Restricted crosswalk downloaded. This download has been logged.');
+  }finally{download.disabled=false;}
+ }));download.id='download-crosswalk';downloads.append(download);$('packages').append(downloads);
+ renderGuidedComparison();
+}
+async function openNextAssociation(afterAssociation=false){
+ const current=uid,generation=reviewRequest;
+ let queue=await api('/api/research-queue?offset=0&bucket='),pageOffset=0;
+ if(current!==uid||generation!==reviewRequest)return;
+ let index=queue.rows.findIndex(s=>s.uid===current);
+ while(afterAssociation!==true&&current&&index<0&&pageOffset+100<queue.total){
+  pageOffset+=100;queue=await api('/api/research-queue?offset='+pageOffset+'&bucket=');
+  if(current!==uid||generation!==reviewRequest)return;index=queue.rows.findIndex(s=>s.uid===current);
+ }
+ let next=afterAssociation===true?queue.rows[0]:queue.rows[index+1];
+ if(index>=0&&!next&&pageOffset+100<queue.total){queue=await api('/api/research-queue?offset='+(pageOffset+100)+'&bucket=');if(current!==uid||generation!==reviewRequest)return;next=queue.rows[0];}
+ if(next)await openStudy(next.uid,'#studies');
+ else{ $('guided-queue').open=true;notice('No other unassociated study is available in this queue. Choose a study or refresh report suggestions.'); }
+}
+function renderGuidedComparison(){
+ const box=$('guided-comparison');if(!box)return;box.replaceChildren();
+ const s=typeof selectedStudy==='undefined'?null:selectedStudy;
+ $('export-identity').textContent=s?'Export name and ID: '+s.subject+' · '+(s.linked_studies??1)+' linked study/studies. MRN and issuing system determine the patient identity.':'';
+ if(!s)return;
+ const r=browserSelection?.identity||{},m=s.image_identity||{};
+ box.append(el('h3','Verify the same patient and examination'));
+ const table=el('table'),head=el('thead'),hr=el('tr');
+ ['Check','Image record','Report record'].forEach(t=>hr.append(el('th',t)));head.append(hr);table.append(head);
+ const body=el('tbody');
+ for(const [label,left,right] of [['Patient',displayPatient(s.name),displayPatient(r.name)],['MRN / Patient ID',s.patient,r.patient_id||r.mrn],['Date of birth',m.PatientBirthDate,r.dob],['Exam date',s.date,r.exam_date],['Exam / body area',[s.modality,m.BodyPartExamined].filter(Boolean).join(' / '),r.modality||r.body_part||r.description],['Accession',s.accession,r.accession]]){
+  const tr=el('tr');[label,left||'Not available',right||(browserSelection?'Not available — verify source':'Choose a report')].forEach(v=>tr.append(el('td',v)));body.append(tr);
+ }
+ table.append(body);box.append(table,el('p','Compare both original records. Missing details or differences require investigation; a suggestion is not a verified match.','muted'));
 }
 
 async function checkSQLReadiness(){

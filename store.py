@@ -87,6 +87,14 @@ def initialize(config):
         CREATE TABLE IF NOT EXISTS exports (
           id INTEGER PRIMARY KEY, study TEXT NOT NULL, folder TEXT NOT NULL,
           manifest_hash TEXT NOT NULL, created REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS patient_identities (
+          patient_key TEXT PRIMARY KEY, subject TEXT UNIQUE NOT NULL,
+          patient TEXT NOT NULL, issuer TEXT NOT NULL, created REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS export_identities (
+          export_id INTEGER PRIMARY KEY REFERENCES exports(id),
+          patient TEXT NOT NULL, name TEXT NOT NULL, issuer TEXT NOT NULL,
+          subject TEXT NOT NULL, accession TEXT NOT NULL, study_uid TEXT NOT NULL,
+          anonymous_study_uid TEXT NOT NULL);
         ''')
         columns = {r['name'] for r in db.execute('PRAGMA table_info(studies)')}
         for name, declaration in [('source_hashes', "TEXT NOT NULL DEFAULT '{}'"), ('last_error', "TEXT NOT NULL DEFAULT ''")]:

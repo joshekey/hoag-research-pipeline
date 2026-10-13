@@ -64,6 +64,21 @@ test('tabs carry the selected study through reports, association, review and exp
  }finally{f.dom.window.close();}
 });
 
+test('guided comparison collapses queue and clears report identity on study changes',async()=>{
+ const f=fixture();try{
+  await settle();assert.equal(f.$('guided-queue').open,true);
+  await f.open('1.2.3');await settle();
+  assert.equal(f.$('guided-queue').open,false);
+  assert.match(f.$('export-identity').textContent,/SUBJECT_SYNTHETIC_A/);
+  f.$('browser-rows').querySelector('button').click();await settle();
+  assert.match(f.$('guided-comparison').textContent,/Sample Alex/);
+  await f.open('1.2.4');await settle();
+  assert.match(f.$('guided-comparison').textContent,/Choose a report/);
+  assert.doesNotMatch(f.$('guided-comparison').textContent,/Sample Alex/);
+  assert.ok(f.$('download-crosswalk'));
+ }finally{f.dom.window.close();}
+});
+
 test('late report responses never appear under a different selected study',async()=>{
  const f=fixture();try{
   await settle();await f.open('1.2.3');await settle();

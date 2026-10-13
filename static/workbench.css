@@ -71,3 +71,29 @@ button,input,select,textarea{font-family:inherit}button{transition:background .1
 #diagnostic-report{padding:20px;background:#fff;border:1px solid #dce5ef;border-radius:8px;margin:12px 0}#diagnostic-report h3{font-size:18px;font-weight:600;margin:0 0 20px;color:#203c58}#diagnostic-report h4{font-size:12px;letter-spacing:.8px;color:#456680;margin:24px 0 8px}#diagnostic-report p{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.8;color:#293d50;margin:8px 0}.original-source summary{font-size:12px;color:#64778a}.original-source textarea{font-family:monospace!important}
 @media(max-width:1180px){#research-workbench{grid-template-columns:220px minmax(0,1fr);height:auto;min-height:0}.image-workspace{height:800px;min-height:0}.report-workspace{grid-column:1/-1}.study-browser{max-height:800px}}
 @media(max-width:620px){#research-workbench{display:flex}.study-browser{max-height:300px}.image-workspace{height:760px;min-height:760px}#image-pane{overflow:hidden}#image-viewport{min-height:260px;max-height:none}.report-workspace{min-height:0}}
+
+/* 1.50 Guided comparison: one page scroll, two generous working panes. */
+:root{--bg:#edf5ff;--border:#c8dcf3;--text:#153758;--muted:#4b6888;--line:#c8dcf3}
+.top-brand{background:#123f70;color:#fff}.top-brand span{color:#d8eaff}
+button{background:#0866c6;color:#fff}button.secondary{background:#e6f1ff;color:#175b9e;border-color:#c8dcf3}
+#notice{position:static;inset:auto;margin-top:12px;z-index:auto}
+#research-workbench{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);height:auto;min-height:0;gap:20px;align-items:start}
+#guided-queue,.guided-context{grid-column:1/-1;background:#fff;border:1px solid #c8dcf3;border-radius:12px;padding:18px;margin:0;min-width:0}
+#guided-queue>summary{font-size:15px;font-weight:600;color:#175b9e;cursor:pointer}
+#guided-queue .study-browser{max-height:none;overflow:visible;border:0;padding:14px 0 0;box-shadow:none}
+#guided-queue .study-browser tbody{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+#guided-queue .study-browser tbody tr{margin:0}#guided-queue .study-browser table{display:block}
+#guided-queue .study-browser .filters{display:flex;flex-wrap:wrap}#guided-queue #search{max-width:560px}
+.guided-context .current-study-banner{border:0;padding:0;background:transparent}.guided-context h3{color:#075db8;margin:16px 0 8px}
+#export-identity{padding:10px 14px;border-radius:8px;background:#deedff;color:#175b9e;overflow-wrap:anywhere}#export-identity:empty{display:none}
+#guided-comparison th{background:#deedff;color:#345e88}#guided-comparison td{overflow-wrap:anywhere;width:33%}#guided-comparison p{margin-bottom:0}
+#guided-comparison th,#guided-comparison td{padding:7px 10px;border-color:#c8dcf3}#guided-comparison th{letter-spacing:.4px}.guided-context{padding:16px 20px}
+.image-workspace{height:auto;min-height:0}.report-workspace{grid-column:auto;overflow:visible;padding:22px;min-height:0;background:#fff}
+#image-pane{overflow:visible;background:#103354;padding:20px}#image-pane h3{font-size:17px}
+#image-pane label,#image-pane .muted,#image-pane>p{font-size:12px}#image-pane select,#image-pane .toolbar button{font-size:13px}
+#image-viewport{height:480px;min-height:320px;flex:none;max-height:none}#image-stage{margin:auto}
+.report-workspace p{font-size:14px}.report-workspace h3{font-size:17px}.sql-readiness.ready{background:#deedff;color:#175b9e;border-color:#c8dcf3}
+#diagnostic-report{padding:18px 0;border:0}#diagnostic-report h3,#diagnostic-report h4{color:#075db8}
+#browser-confirm{accent-color:#0866c6}#browser-confirm:checked{accent-color:#0866c6}#report-preview>.check{background:#deedff;padding:14px;border-radius:8px;font-size:14px}
+.workbench-actions{flex-wrap:wrap;justify-content:flex-start}.image-empty{min-height:400px;background:#103354}
+@media(max-width:800px){#research-workbench{display:flex;flex-direction:column}#research-workbench>*{width:100%}.image-workspace{height:auto;min-height:0}#image-pane{overflow:visible}#image-viewport{height:420px;min-height:260px}#guided-comparison th,#guided-comparison td{font-size:12px;padding:8px 5px}.report-workspace{padding:16px}}

@@ -1,5 +1,32 @@
 # HOAG Research Pipeline
 
+### 1.50 guided comparison and patient crosswalk
+
+The blue Guided comparison workspace uses two wide image/report panes and a
+collapsible study queue. Compare patient and examination details above the panes;
+optionally advance to the next unassociated study after explicit confirmation.
+OHIF opens separately. Association does not approve privacy review or export.
+
+Anonymous DICOM names and IDs remain the existing `SUBJECT_…` value, consistently
+keyed by source Patient ID/MRN and Issuer of Patient ID. The restricted workflow
+database now persists this registry and records an immutable identity snapshot
+for each completed export. Different MRN issuers remain separate; names alone
+never merge patients. Missing MRNs block export for specialist review. Blank
+issuers use the existing local MRN namespace; do not combine unrelated MRN domains
+without correcting their source issuer information.
+
+Export → **Download patient crosswalk (CSV)** produces one row per completed
+export, including original patient/MRN/issuer/accession and anonymous patient/study
+identifiers. It uses the existing hospital operator login, requires CSRF protection,
+and logs downloads. Keep it separate from anonymized packages. Exports made before
+this feature are listed as legacy entries without an identity snapshot; historical
+identities are not guessed from a potentially changed catalog.
+
+This remains **1.50**. Updating with `sudo bash research_build --no-configure`
+adds tables without rereading DICOM, clearing the catalog, or resetting approvals.
+Preserve the existing configuration, secret key, and state directory. No reindex is
+needed for these changes.
+
 Release **1.50** adds a DICOM-first workbench, guided TXT/SQL import that preserves the existing DICOM catalog, SQL readiness feedback, and clearer source connections. It retains the researcher review queue and automatically ranked TXT/SQL
 report suggestions with explainable evidence, a third source-share mount slot,
 Patient/Date header extraction, and persistent work/coverage/recovery feedback.

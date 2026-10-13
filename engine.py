@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 
 import pydicom
+import patient_identity
 from pydicom.errors import InvalidDicomError
 from store import audit, checkpoint, database, idle, progress, research_uid, token
 
@@ -367,7 +368,7 @@ def match(config, job=None, from_scan=False):
             identities = {(m['PatientID'], m['IssuerOfPatientID'], m['PatientName']) for m in metas}
             accessions = {m['AccessionNumber'] for m in metas if m['AccessionNumber']}
             patient_key = first['IssuerOfPatientID'] + '\0' + first['PatientID'] if first['PatientID'] else uid
-            subject = 'SUBJECT_' + token(config, 'subject', patient_key)[:20]
+            subject = patient_identity.subject_for_patient(config, db, first['PatientID'], first['IssuerOfPatientID'], uid)
             fingerprint = digest(json.dumps(sorted((r['id'], r['size'], r['mtime'], r['metadata']) for r in rows)).encode())
             state = 'conflict' if len(identities) > 1 or len(accessions) > 1 else 'unmatched'
             db.execute('''INSERT INTO studies(uid,subject,accession,patient,name,date,modality,count,size,fingerprint,state)
@@ -604,6 +605,8 @@ def export_study(config, uid, job=None):
         rows = db.execute("SELECT * FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=? ORDER BY id", (uid,)).fetchall()
     if not report or len(rows) != study['count']:
         raise ValueError('Catalog changed; rescan and review')
+    with database(config) as db:
+        identity = patient_identity.export_identity(config, db, study, rows)
     current_approval = digest(json.dumps([study['sanitized'], json.loads(study['redactions']), study['review_note'], study['report_id'], study['report_hash'], study['source_hashes']], sort_keys=True).encode())
     if current_approval != study['approved_hash']:
         raise ValueError('Review content changed; approve again')
@@ -648,7 +651,8 @@ def export_study(config, uid, job=None):
             target = bundle / 'DICOM' / (str(ds.SOPInstanceUID) + '.dcm')
             ds.save_as(target, enforce_file_format=True)
             verified = pydicom.dcmread(target, stop_before_pixels=True)
-            if str(verified.StudyInstanceUID) != research_uid(config, uid) or verified.PatientID != study['subject']:
+            if (str(verified.StudyInstanceUID) != research_uid(config, uid)
+                    or verified.PatientID != study['subject'] or str(verified.PatientName) != study['subject']):
                 raise ValueError('Output validation failed')
             entries.append({'path': 'DICOM/' + target.name, 'sha256': file_digest(target), 'bytes': target.stat().st_size})
             progress(config, job, count, 'Writing reviewed research package')
@@ -672,8 +676,9 @@ def export_study(config, uid, job=None):
         final = subject_dir / ('STUDY_' + token(config, 'study', uid)[:20] + '_' + uuid.uuid4().hex[:8])
         bundle.rename(final)
         with database(config) as db:
-            db.execute('INSERT INTO exports(study,folder,manifest_hash,created,bytes) VALUES (?,?,?,?,?)',
+            exported = db.execute('INSERT INTO exports(study,folder,manifest_hash,created,bytes) VALUES (?,?,?,?,?)',
                        (uid, str(final), digest((final / 'manifest.json').read_bytes()), time.time(), sum(item['bytes'] for item in entries)))
+            patient_identity.record_export(db, exported.lastrowid, identity)
             db.execute("UPDATE studies SET state='exported' WHERE uid=?", (uid,))
             audit(db, 'worker', 'export-completed', final.name)
         return final
