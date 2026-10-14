@@ -111,7 +111,7 @@ def write_table(path, grouped):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=['prepare','authorize','stage'])
+    parser.add_argument('action',choices=['prepare','worksheet','authorize','stage'])
     parser.add_argument('--config',default='/etc/hoag-research/config.json')
     parser.add_argument('--run',help='Existing private patient-bundle run; default latest bundle')
     choice=parser.add_mutually_exclusive_group()
@@ -158,6 +158,12 @@ def main():
             table=run/(prefix+'dicom-review-summary.private.csv')
             if not table.exists(): write_table(table,grouped)
             if not ledger_path.exists(): stage.write_json(ledger_path,new_ledger(plan,args.metadata_only))
+        if args.action=='worksheet':
+            import batch_identity_worksheet
+            if not args.metadata_only or not args.group: raise ValueError('metadata_group_required')
+            counts=batch_identity_worksheet.generate(plan,grouped,args.group,root,run,config,private)
+            print(json.dumps(counts))
+            return 2 if counts['source_discrepancies'] else 0
         ledger=json.loads(private(ledger_path).read_text())
         if ledger['plan_sha256']!=stage.digest(plan): raise ValueError('review_plan_changed')
         if (ledger.get('staging_mode') == stage.METADATA_MODE) != args.metadata_only: raise ValueError('staging_mode_mismatch')
