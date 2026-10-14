@@ -14,6 +14,11 @@ from batch_readiness import fingerprint
 
 
 REASONS = {
+    'missing_identity_evidence': ('identity', 'Identify which required field is missing; obtain authoritative evidence. Missing issuer alone is a strict-policy hold, not proof of wrong identity.'),
+    'cross_patient_identifier_collision': ('identity', 'Resolve issuing namespace and authoritative patient ownership; never assume shared identifiers are safe.'),
+    'cross_patient_ownership_conflict': ('identity', 'Resolve cross-patient study UID or source hash ownership with authoritative evidence.'),
+    'same_hash_has_unresolved_scope': ('identity', 'Investigate every ownership scope for this hash; do not clear one occurrence independently.'),
+    'missing_source_hash': ('source_access_or_change', 'Obtain a verified source inventory before authorization.'),
     'overlay_review': ('pixel_overlay', 'Inspect overlays and all frames; overlay presence alone does not prove identifying text.'),
     'burned_in_or_unknown': ('pixel_overlay', 'Separate YES, missing and other values; absence of NO is not proof of burned-in identifiers. Existing hash-bound all-frame review may support resolution, but no automatic clearance.'),
     'invalid_age': ('metadata', 'Verify the source PatientAge and obtain an authorized correction or explicit profile decision; never infer or replace it here.'),
@@ -50,8 +55,14 @@ def inspect_record(record, config, mounted, verify_hashes):
         result['burned_in_attribute'] = {'YES':'explicit_yes','NO':'explicit_no','':'missing_or_empty'}.get(bia,'other_value')
         result['overlay_tags'] = sorted({str(e.tag) for e in ds.iterall() if 0x6000<=e.tag.group<=0x60ff})
         result['overlay_presence'] = 'present' if result['overlay_tags'] else 'absent'
+        result['overlay_payload_present'] = any(0x6000<=e.tag.group<=0x60ff and e.tag.element==0x3000 for e in ds.iterall())
+        result['overlay_bit_position_present'] = any(0x6000<=e.tag.group<=0x60ff and e.tag.element==0x0102 for e in ds.iterall())
+        result['burned_in_normalization_changed'] = str(ds.get('BurnedInAnnotation','')).upper()!=bia
+        result['missing_identity_fields'] = [tag for tag in ('PatientName','PatientID','IssuerOfPatientID','PatientBirthDate') if not str(ds.get(tag,'')).strip()]
+        result['header_identity_differs_from_plan'] = any(str(ds.get(tag,''))!=value for tag,value in record.get('identity',{}).items())
         age = str(ds.get('PatientAge',''))
         result['age_format'] = 'missing' if not age else ('valid' if base.re.fullmatch(r'[0-9]{3}[DWMY]',age) else 'invalid')
+        result['age_valid_after_whitespace_cleanup'] = bool(base.re.fullmatch(r'[0-9]{3}[DWMY]',age.strip()))
         result['membership'] = 'matches_plan' if (str(ds.get('StudyInstanceUID',''))==record.get('study_uid')
             and str(ds.get('SOPInstanceUID',''))==record.get('sop_uid')) else 'differs_or_missing'
         result['status'] = 'header_readable_now'
