@@ -15,7 +15,7 @@ import batch_reconcile as base
 FIELDS=('PatientName','PatientID','IssuerOfPatientID','PatientBirthDate')
 
 
-def groups(plan):
+def groups(plan, metadata_only=False):
     by_study=defaultdict(list); uid_owners=defaultdict(set); hash_owners=defaultdict(set); id_owners=defaultdict(set)
     for index,record in enumerate(plan['records']):
         by_study[(record['label'],record['study_uid'])].append((index,record))
@@ -29,7 +29,7 @@ def groups(plan):
         variants={tuple(r.get('identity',{}).get(k,'').strip() for k in FIELDS) for _,r in rows}
         blocked=[]; eligible=[]
         for index,record in rows:
-            reasons=list(record['holds'])
+            reasons=stage.remaining_holds(record, metadata_only)
             if len(uid_owners[uid])>1 or len(hash_owners.get(record.get('sha256'),set()))>1:
                 reasons.append('cross_patient_ownership_conflict')
             identity=record.get('identity',{})
@@ -56,14 +56,17 @@ def groups(plan):
     return result
 
 
-def new_ledger(plan):
+def new_ledger(plan, metadata_only=False):
     return {'profile':stage.PROFILE,'plan_sha256':stage.digest(plan),
+            **({'staging_mode':stage.METADATA_MODE} if metadata_only else {}),
             'profile_reviewed_by':'','objects':{},'group_reviews':[], 'release_allowed':False}
 
 
 def authorize(plan, ledger, selected_groups, reviewer, evidence, resolve_variants=False):
     if ledger.get('plan_sha256')!=stage.digest(plan): raise ValueError('plan_changed')
-    if not reviewer.strip() or not all(evidence.get(k) for k in ('identity','profile','pixels')):
+    metadata_only = ledger.get('staging_mode') == stage.METADATA_MODE
+    required = ('identity','profile') if metadata_only else ('identity','profile','pixels')
+    if not reviewer.strip() or not all(evidence.get(k) for k in required):
         raise ValueError('separate_evidence_required')
     approved=0
     variants={tuple(v.get(k,'') for k in FIELDS) for g in selected_groups for v in g['identity_variants']}
@@ -76,7 +79,8 @@ def authorize(plan, ledger, selected_groups, reviewer, evidence, resolve_variant
             record=plan['records'][index]
             ledger['objects'][record['sha256']]={'label':group['label'],
                 'identity_verified_by':reviewer,'authority_reference':evidence['identity']['sha256'],
-                'all_frames_reviewed_by':reviewer,'pixel_identifiers_absent':True}
+                **({'pixel_review_pending':True} if metadata_only else
+                   {'all_frames_reviewed_by':reviewer,'pixel_identifiers_absent':True})}
             approved+=1
         ledger['group_reviews'].append({'group_id':group['group_id'],'reviewer':reviewer,
             'evidence':evidence,'identity_variants_explicitly_resolved':resolve_variants,
@@ -113,6 +117,8 @@ def main():
     choice=parser.add_mutually_exclusive_group()
     choice.add_argument('--patient'); choice.add_argument('--group')
     parser.add_argument('--reviewer')
+    parser.add_argument('--metadata-only',action='store_true',help='Restricted copies; pixel review remains pending')
+    parser.add_argument('--pilot-limit',type=int,default=0,help='Maximum new staging attempts; zero resumes all authorized objects')
     for name in ('identity','profile','pixels'): parser.add_argument('--'+name+'-evidence')
     parser.add_argument('--identity-verified',action='store_true')
     parser.add_argument('--profile-reviewed',action='store_true')
@@ -137,23 +143,27 @@ def main():
         lock_path=run/'.bundle-lock'
         fd=os.open(lock_path,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600); os.close(fd); lock=lock_path
         bundle=json.loads(private(run/'bundle-plan.private.json').read_text())
-        plan=bundle['stage_plan']; grouped=groups(plan)
-        packet_path=run/'dicom-review-packet.private.json'
-        ledger_path=run/'group-authorizations.private.json'
+        plan=bundle['stage_plan']; grouped=groups(plan,args.metadata_only)
+        prefix = 'metadata-' if args.metadata_only else ''
+        staging_run = run/'metadata-staging' if args.metadata_only else run
+        if staging_run.exists(): private(staging_run)
+        packet_path=run/(prefix+'dicom-review-packet.private.json')
+        ledger_path=run/(prefix+'group-authorizations.private.json')
         if args.action=='prepare':
             if packet_path.exists():
                 if json.loads(private(packet_path).read_text())['plan_sha256']!=stage.digest(plan): raise ValueError('review_plan_changed')
             else:
                 stage.write_json(packet_path,{'plan_sha256':stage.digest(plan),'groups':grouped,
                     'source_records':plan['records'],'inventory_exceptions':plan['exceptions'],'release_allowed':False})
-            table=run/'dicom-review-summary.private.csv'
+            table=run/(prefix+'dicom-review-summary.private.csv')
             if not table.exists(): write_table(table,grouped)
-            if not ledger_path.exists(): stage.write_json(ledger_path,new_ledger(plan))
+            if not ledger_path.exists(): stage.write_json(ledger_path,new_ledger(plan,args.metadata_only))
         ledger=json.loads(private(ledger_path).read_text())
         if ledger['plan_sha256']!=stage.digest(plan): raise ValueError('review_plan_changed')
+        if (ledger.get('staging_mode') == stage.METADATA_MODE) != args.metadata_only: raise ValueError('staging_mode_mismatch')
         if args.action=='authorize':
-            if (run/'checkpoint.private.json').exists(): raise ValueError('authorization_frozen_after_staging')
-            if not (args.patient or args.group) or not (args.identity_verified and args.profile_reviewed and args.all_frames_reviewed_no_identifiers):
+            if (staging_run/'checkpoint.private.json').exists(): raise ValueError('authorization_frozen_after_staging')
+            if not (args.patient or args.group) or not (args.identity_verified and args.profile_reviewed and (args.metadata_only or args.all_frames_reviewed_no_identifiers)):
                 raise ValueError('explicit_review_attestations_required')
             selected=[g for g in grouped if g['label']==args.patient or g['group_id']==args.group]
             if not selected: raise ValueError('unknown_group')
@@ -161,11 +171,12 @@ def main():
             if args.patient and any(g['requires_variant_resolution'] for g in selected):
                 raise ValueError('within_study_variants_require_individual_study_review')
             evidence={}
-            for kind in ('identity','profile','pixels'):
+            required = ('identity','profile') if args.metadata_only else ('identity','profile','pixels')
+            for kind in required:
                 path=private(getattr(args,kind+'_evidence'))
                 if not path.is_file() or path.stat().st_size==0: raise ValueError('empty_evidence')
                 evidence[kind]={'path':str(path),'sha256':stage.fingerprint(path)}
-            if len({v['path'] for v in evidence.values()})!=3: raise ValueError('separate_evidence_artifacts_required')
+            if len({v['path'] for v in evidence.values()})!=len(required): raise ValueError('separate_evidence_artifacts_required')
             authorize(plan,ledger,selected,args.reviewer or '',evidence,args.resolve_identity_variations)
             stage.write_json(ledger_path,ledger)
         if args.action=='stage':
@@ -174,8 +185,9 @@ def main():
                 for item in review['evidence'].values():
                     if stage.fingerprint(private(item['path']))!=item['sha256']: raise ValueError('review_evidence_changed')
             mounted=base.mounts(Path('/proc/self/mountinfo').read_text())
-            stage.stage(plan,ledger,config,mounted,run,lambda value:print(json.dumps(value),flush=True))
-        print(json.dumps(public_counts(plan,grouped,ledger)))
+            staging_run.mkdir(mode=0o700,exist_ok=True)
+            stage.stage(plan,ledger,config,mounted,staging_run,lambda value:print(json.dumps(value),flush=True),pilot_limit=args.pilot_limit)
+        if args.action != 'stage': print(json.dumps(public_counts(plan,grouped,ledger)))
         return 0
     except Exception as error:
         # Only authored fixed reason codes may reach the terminal.

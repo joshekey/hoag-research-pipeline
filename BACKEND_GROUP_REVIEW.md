@@ -1,5 +1,11 @@
 # DICOM group review and controlled authorization (1.50)
 
+**Metadata-only staging option (still 1.50):** See [the pilot workflow](BACKEND_METADATA_PILOT.md).
+Unknown burned-in annotation status can now defer pixel review while creating
+restricted, identity-approved metadata-anonymized copies. The default workflow
+below remains unchanged; it still requires completed pixel review. The new mode
+uses separate approvals/checkpoints and keeps release disabled.
+
 This tool turns the existing patient-bundle DICOM inventory into study-level
 review packets. It does not infer identity from names, ages, folders or reports.
 No anonymization runs during preparation or authorization. All 80 cohort members

@@ -17,6 +17,25 @@ import batch_stage_validation
 import engine
 
 PROFILE = 'HOAG-1.50-STAGING-AGE-v1'
+METADATA_MODE = 'metadata_only_pending_pixel_review'
+
+def remaining_holds(record, metadata_only=False):
+    return [h for h in record['holds'] if not (metadata_only and h == 'burned_in_or_unknown'
+        and record.get('burned_in_annotation', '').strip().upper() != 'YES')]
+
+def progress_counts(state, total):
+    objects = list(state['objects'].values())
+    held = [v for v in objects if v['status']=='held']
+    return {'dicom_files_metadata_anonymized':sum(v['status'] in ('validated_staging_only',
+                'metadata_anonymized_awaiting_pixel_review') for v in objects),
+            'files_awaiting_pixel_review':sum(v['status']=='metadata_anonymized_awaiting_pixel_review' for v in objects),
+            'files_held':sum(v['status']=='held' for v in objects),
+            'hold_counts':dict(Counter(v['code'] for v in held)),
+            'technical_reason_counts':dict(Counter(r for v in held for r in set(v.get('reasons',[])))),
+            'files_held_for_identity_or_source':sum(v['code'] in ('identity_review_required',
+                'source_changed','source_changed_during_processing') or 'source_unverified' in v.get('reasons',[]) for v in held),
+            'files_not_processed':total-len(objects), 'release_allowed':False}
+
 
 
 def digest(value):
@@ -68,6 +87,7 @@ def plan(manifest, config, mounted, emit=lambda value: None):
                 record['sop_uid'] = str(ds.SOPInstanceUID)
                 record['identity'] = {k:str(ds.get(k,'')) for k in ('PatientName','PatientID','IssuerOfPatientID','PatientBirthDate')}
                 if any(0x6000 <= e.tag.group <= 0x60ff for e in ds.iterall()): record['holds'].append('overlay_review')
+                record['burned_in_annotation'] = str(ds.get('BurnedInAnnotation',''))
                 if str(ds.get('BurnedInAnnotation','')).upper() != 'NO': record['holds'].append('burned_in_or_unknown')
                 if str(ds.get('PatientAge','')) and not re.fullmatch(r'[0-9]{3}[DWMY]', str(ds.PatientAge)): record['holds'].append('invalid_age')
             except Exception as error:
@@ -93,7 +113,10 @@ def plan(manifest, config, mounted, emit=lambda value: None):
         'records':records,'exceptions':exceptions,'counts':counts,'release_allowed':False}
 
 
-def stage(plan_data, reviews, config, mounted, run, emit=lambda value: None):
+def stage(plan_data, reviews, config, mounted, run, emit=lambda value: None, pilot_limit=0):
+    if pilot_limit < 0: raise ValueError('invalid_pilot_limit')
+    metadata_only = reviews.get('staging_mode') == METADATA_MODE
+    attempts = 0
     # The ledger is a hospital-local attestation, not an inferred MRN alias table.
     if (reviews.get('profile') != PROFILE or reviews.get('plan_sha256') != digest(plan_data)
         or not reviews.get('profile_reviewed_by')): raise ValueError('profile_review_required')
@@ -112,23 +135,40 @@ def stage(plan_data, reviews, config, mounted, run, emit=lambda value: None):
                 if record['label'] != label: continue
                 key = str(index)
                 review = reviews.get('objects',{}).get(record.get('sha256',''),{})
-                if (record['holds'] or review.get('label') != label or not review.get('identity_verified_by')
-                    or not review.get('authority_reference') or not review.get('all_frames_reviewed_by')
-                    or review.get('pixel_identifiers_absent') is not True):
-                    state['objects'][key] = {'status':'held','code':'technical_or_review_gate'}
+                holds = remaining_holds(record, metadata_only)
+                identity_ok = (review.get('label') == label and review.get('identity_verified_by')
+                               and review.get('authority_reference'))
+                pixels_ok = review.get('all_frames_reviewed_by') and review.get('pixel_identifiers_absent') is True
+                if holds or not identity_ok or (not metadata_only and not pixels_ok):
+                    code = 'technical_hold' if holds else ('identity_review_required' if not identity_ok else 'pixel_review_required')
+                    state['objects'][key] = {'status':'held','code':code,'reasons':holds}
+                    continue
+                previous = state['objects'].get(key, {})
+                if pilot_limit and attempts >= pilot_limit and previous.get('status') not in (
+                        'validated_staging_only', 'metadata_anonymized_awaiting_pixel_review'):
                     continue
                 try:
+                    if previous.get('status') not in ('validated_staging_only', 'metadata_anonymized_awaiting_pixel_review'):
+                        attempts += 1
                     path = base.source_checked(record['path'], config['source_roots'], Path(config['output_root']).resolve(), mounted)
                     if fingerprint(path) != record['sha256']: raise ValueError('source_changed')
                     source = pydicom.dcmread(path)
+                    if str(source.get('BurnedInAnnotation','')).strip().upper() == 'YES':
+                        raise ValueError('known_burned_in_identifiers')
+                    if any(0x6000 <= e.tag.group <= 0x60ff for e in source.iterall()):
+                        raise ValueError('overlay_review_required')
                     target = run/label/'DICOM'/('study-'+engine.research_uid(config, record['study_uid']))/(f'instance-{index+1:08d}.dcm')
                     if any(p.is_symlink() for p in (target,target.with_suffix('.partial'),*target.parents)): raise ValueError('symlink')
                     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
                     if target.exists():
                         if state['objects'].get(key,{}).get('sha256') != fingerprint(target): raise ValueError('existing_output_unverified')
                         batch_stage_validation.validate(source, target, label, config)
+                        if fingerprint(path) != record['sha256']: raise ValueError('source_changed_during_processing')
                         continue
-                    source.pixel_array  # Unsupported decoding is an object-level hold.
+                    try:
+                        source.pixel_array  # Unsupported decoding is an object-level hold.
+                    except Exception:
+                        raise ValueError('unsupported_pixel_decoding') from None
                     ds = engine.anonymize_dataset(config, copy.deepcopy(source), label, [])
                     # Only age is retained from the patient-demographic group.
                     for dataset in [ds, *[item for e in ds.iterall() if e.VR=='SQ' for item in e.value]]:
@@ -137,22 +177,30 @@ def stage(plan_data, reviews, config, mounted, run, emit=lambda value: None):
                     ds.PatientName = label; ds.PatientID = label
                     if 'PatientAge' in source: ds.PatientAge = source.PatientAge
                     ds.PatientIdentityRemoved = 'YES'
-                    ds.DeidentificationMethod = PROFILE
+                    ds.DeidentificationMethod = PROFILE + ('; METADATA ONLY; PIXEL REVIEW PENDING' if metadata_only else '')
+                    if metadata_only:
+                        # Preserve unknown status; never manufacture a NO declaration.
+                        if 'BurnedInAnnotation' in source: ds.BurnedInAnnotation = source.BurnedInAnnotation
+                        elif 'BurnedInAnnotation' in ds: del ds.BurnedInAnnotation
                     ds.LongitudinalTemporalInformationModified = 'REMOVED'
                     temp = target.with_suffix('.partial')
                     ds.save_as(temp, enforce_file_format=True)
                     batch_stage_validation.validate(source, temp, label, config)
                     if fingerprint(path) != record['sha256']: raise ValueError('source_changed_during_processing')
                     os.replace(temp, target)
-                    state['objects'][key] = {'status':'validated_staging_only', 'sha256':fingerprint(target)}
+                    state['objects'][key] = {'status':('metadata_anonymized_awaiting_pixel_review' if metadata_only else 'validated_staging_only'), 'sha256':fingerprint(target)}
                 except Exception as error:
-                    state['objects'][key] = {'status':'held','code':type(error).__name__}
+                    allowed = {'source_changed','source_changed_during_processing','known_burned_in_identifiers',
+                               'overlay_review_required','unsupported_pixel_decoding','existing_output_unverified'}
+                    code = str(error) if type(error) is ValueError and str(error) in allowed else 'processing_or_validation_failed'
+                    state['objects'][key] = {'status':'held','code':code}
                 write_json(state_path, state)
                 if (index+1) % 20 == 0:
-                    emit({'phase':'restricted_staging','patient':label,'objects_checked':index+1,'release_allowed':False})
+                    emit({'phase':'restricted_staging','patient':label,'objects_checked':index+1,
+                          **progress_counts(state,len(plan_data['records']))})
             write_json(state_path, state)
             emit({'phase':'restricted_staging','patient':label,'patient_number':number,
-                'cohort_patients':len(plan_data['patients']), 'counts':dict(Counter(v['status'] for v in state['objects'].values())), 'release_allowed':False})
+                'cohort_patients':len(plan_data['patients']), **progress_counts(state,len(plan_data['records']))})
         # Optional reports are independently attested and never gate DICOM work.
         state.setdefault('reports', {})
         for index, report in enumerate(reviews.get('reports', [])):
@@ -179,6 +227,7 @@ def stage(plan_data, reviews, config, mounted, run, emit=lambda value: None):
             write_json(state_path,state)
     finally:
         lock.unlink()
+    emit({'phase':'staging_summary', **progress_counts(state,len(plan_data['records']))})
     return state
 
 

@@ -1,5 +1,11 @@
 # DICOM-first restricted staging — version 1.50
 
+**Metadata-only staging option (still 1.50):** See [the pilot workflow](BACKEND_METADATA_PILOT.md).
+Unknown burned-in annotation status can now defer pixel review while creating
+restricted, identity-approved metadata-anonymized copies. The default workflow
+below remains unchanged; it still requires completed pixel review. The new mode
+uses separate approvals/checkpoints and keeps release disabled.
+
 This is a proposed profile and hospital-local staging implementation, not a
 release-approved deidentification system. No export/release command exists.
 All crosswalk patients remain in the cohort. Missing reports do not gate DICOM;
