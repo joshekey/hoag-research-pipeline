@@ -447,17 +447,60 @@ def analyzer():
     return _analyzer
 
 
+REPORT_REDACTION_POLICY = 'patient-identifiers-v2'
+# Generic PERSON, LOCATION, ORGANIZATION, DATE_TIME and numeric NLP entities
+# are deliberately excluded: they misclassify radiology anatomy and notation.
+REPORT_PII_ENTITIES = frozenset({'EMAIL_ADDRESS', 'PHONE_NUMBER', 'US_SSN',
+                                  'IP_ADDRESS', 'URL'})
+
+
 def sanitize_report(text, identifiers, nlp=None):
-    spans = [(r.start, r.end) for r in (nlp or analyzer()).analyze(text=text, language='en', score_threshold=0.35)]
+    """Redact known identities and explicit identifier fields, preserving prose.
+
+    The local detector supplements exact identity matching with contact/SSN
+    recognizers only. Unknown names and ambiguous text require independent
+    review; this function never declares a report safe for release.
+    """
+    spans = [(r.start, r.end) for r in (nlp or analyzer()).analyze(
+        text=text, language='en', score_threshold=0.35,
+        entities=sorted(REPORT_PII_ENTITIES))
+        if getattr(r, 'entity_type', None) in REPORT_PII_ENTITIES]
     for value in identifiers:
         for part in {value, *re.split(r'[\^=]', value)}:
             if part and len(part) >= 2:
-                spans.extend((m.start(), m.end()) for m in re.finditer(r'(?<!\w)' + re.escape(part) + r'(?!\w)', text, re.I))
-    # Explicit hospital identifiers and dates complement NLP; review remains mandatory.
-    for pattern in [r'(?im)^\s*(?:patient|name|mrn|medical record|accession|dob|date of birth|address|phone|email|physician|referring|dictated by|signed by)\b[^\n]*',
-                    r'\b\d{1,4}[-/]\d{1,2}[-/]\d{1,4}\b', r'\b\d{8}\b',
-                    r'\b\d{3}[-. ]\d{2}[-. ]\d{4}\b']:
-        spans.extend((m.start(), m.end()) for m in re.finditer(pattern, text))
+                spans.extend((m.start(), m.end()) for m in re.finditer(
+                    r'(?<!\w)' + re.escape(part) + r'(?!\w)', text, re.I))
+    # Require an explicit field separator. "Patient's laboratory findings..."
+    # and similar clinical sentences must never cause an entire line to vanish.
+    field = (r'(?im)^[ \t]*(?:patient(?:[ \t]+name)?|name|mrn|medical record'
+             r'(?:[ \t]+(?:number|no\.?))?|patient[ \t]+id|accession'
+             r'(?:[ \t]+(?:number|no\.?))?|dob|date of birth|address|phone|email|'
+             r'physician|referring(?:[ \t]+physician)?|ordering[ \t]+provider|'
+             r'dictated by|signed by)[ \t]*[:=][ \t]*[^\r\n]*')
+    spans.extend((m.start(), m.end()) for m in re.finditer(field, text))
+    # Keep the existing removal of full calendar dates. Validate the components
+    # so spinal levels, dimensions and sequence notation cannot match as dates.
+    from datetime import date
+    for match in re.finditer(r'(?<![\w/.-])(?:\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|'
+                             r'\d{4}[/.-]\d{1,2}[/.-]\d{1,2}|\d{8})(?!\w|[/.-]\d)', text):
+        value = match.group()
+        try:
+            if len(value) == 8 and value.isdigit():
+                year, month, day = int(value[:4]), int(value[4:6]), int(value[6:])
+            else:
+                parts = re.split(r'[/.-]', value)
+                if len(parts[0]) == 4:
+                    year, month, day = map(int, parts)
+                else:
+                    month, day, year = map(int, parts)
+                    if year < 100: year += 2000
+            date(year, month, day)
+        except ValueError:
+            continue
+        spans.append(match.span())
+    for pattern in [r'\b\d{3}[-. ]\d{2}[-. ]\d{4}\b',
+                    r'\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b']:
+        spans.extend(m.span() for m in re.finditer(pattern, text, re.I))
     merged = []
     for start, end in sorted(spans):
         if merged and start <= merged[-1][1]:
@@ -753,3 +796,4 @@ def validate_export(config, export_id, job=None):
         with database(config) as db:
             db.execute("UPDATE exports SET validation='Validation failed' WHERE id=?", (export_id,))
         raise ValueError('Package validation failed; inspect destination and manifest before sharing') from None
+

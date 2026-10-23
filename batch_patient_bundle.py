@@ -79,8 +79,13 @@ def prepare(manifest, stage_plan, config, mounted, broker=request_broker, emit=l
                 r['status']='held'; r['reasons'].append('cross_source_patient_conflict')
     identities={p[''].strip():[p.get(k,'') for k in ('FNAME','MNAME','LNAME')] for p in patients}
     for record in stage_plan['records']:
-        identities[record['label']].extend(record.get('identity',{}).values())
-    return {'version':'1.50','mode':'patient_bundle_staging_plan','stage_plan':stage_plan,
+        identities[record['label']].extend(record.get('identity',{}).get(k, '')
+            for k in ('PatientName', 'PatientID', 'PatientBirthDate'))
+    for study in manifest['studies']:
+        accession = study.get('metadata', {}).get('AccessionNumber', '')
+        if accession: identities[study['label']].append(accession)
+    return {'version':'1.51','redaction_policy':engine.REPORT_REDACTION_POLICY,
+        'mode':'patient_bundle_staging_plan','stage_plan':stage_plan,
         'reports':reports,'redaction_identifiers':{k:sorted(set(v)-{''}) for k,v in identities.items()},
         'sql_discovery_complete':sql_complete,'sql_snapshot':snapshot,'release_allowed':False}
 
@@ -94,6 +99,8 @@ def summary(plan):
 
 def process(plan, reviews, config, mounted, run, broker=request_broker, emit=lambda x:None):
     if plan.get('mode')!='patient_bundle_staging_plan': raise ValueError('bundle_plan_required')
+    if plan.get('redaction_policy') != engine.REPORT_REDACTION_POLICY:
+        raise ValueError('redaction_policy_changed_prepare_new_bundle')
     # Existing DICOM review gates remain mandatory. Missing ledger never blocks reports.
     if reviews and reviews.get('profile_reviewed_by'):
         if reviews.get('reports'): raise ValueError('use_bundle_report_plan_not_legacy_report_list')
@@ -200,3 +207,4 @@ def main():
 
 
 if __name__=='__main__': raise SystemExit(main())
+

@@ -75,3 +75,33 @@ files remain private, never released.
 No service restart, mount change or database migration is needed. Rollback is to
 stop using this standalone runner and preserve its private outputs for audit.
 The previous DICOM and report selection commands remain available unchanged.
+
+
+## Clinical text preservation correction (patient-identifiers-v2)
+
+Generic NLP PERSON, ORGANIZATION, LOCATION and DATE_TIME detections no longer
+redact clinical narrative automatically. Exact known patient names/IDs, explicit
+identifier fields, validated full calendar dates and contact/SSN recognizers
+remain active throughout the report, including its clinical body. Anatomy,
+sequence notation, spinal levels, age, duration and measurements remain intact.
+Unknown names and ambiguous text still require independent review. This change
+does not certify de-identification or enable release.
+
+The batch identifier list now uses named patient identity fields and study
+accessions, rather than every identity-field value. Plans carry a redaction
+policy version. Old plans are rejected before any staging; rerun preparation
+to create a NEW private run, then process it. Never reuse or overwrite the old
+redacted drafts, and do not manually alter their checkpoint hashes.
+
+After installing the corrected engine.py and batch_patient_bundle.py:
+
+```bash
+cd /opt/hoag-research
+sudo -u hoag-indexer /opt/hoag-research/venv/bin/python batch_patient_bundle.py --prepare-latest
+sudo -u hoag-indexer /opt/hoag-research/venv/bin/python batch_patient_bundle.py --process-latest
+```
+
+Existing review gates remain mandatory. Compare the newly generated drafts with
+the source reports before delivery. Existing GUI-prepared reports are not
+rewritten automatically; prepare and review them again through their normal
+workflow if they were affected.
