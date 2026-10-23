@@ -46,6 +46,16 @@ class BundleTests(unittest.TestCase):
         with patch('engine.analyzer',return_value=test_workflow.NoNLP()):
             self.assertEqual(bundle.process(plan,self.reviews,self.config,self.mounted,self.run,self.broker),state)
 
+    def test_new_policy_requires_fresh_plan_and_rejects_old_drafts(self):
+        self.setup_bundle()
+        plan=bundle.prepare(self.manifest,self.plan,self.config,self.mounted,self.broker)
+        self.assertEqual(plan['redaction_policy'], bundle.engine.REPORT_REDACTION_POLICY)
+        self.assertIn('ACC_TEST_123', plan['redaction_identifiers']['P001'])
+        old=copy.deepcopy(plan); old.pop('redaction_policy')
+        with self.assertRaisesRegex(ValueError, 'prepare_new_bundle'):
+            bundle.process(old,{},self.config,self.mounted,self.run,self.broker)
+        self.assertFalse(list(self.run.rglob('*.txt')))
+
     def test_redactor_failure_never_copies_original_report(self):
         self.setup_bundle()
         plan=bundle.prepare(self.manifest,self.plan,self.config,self.mounted,self.broker)
@@ -117,3 +127,4 @@ class BundleTests(unittest.TestCase):
         self.assertNotIn('SYNTHETIC123',output)
         self.assertNotIn('<PatientName>',output)
         self.assertIn('[REDACTED]',output)
+
