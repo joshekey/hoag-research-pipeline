@@ -45,10 +45,16 @@ class ClinicalRedactionTests(unittest.TestCase):
         clean = engine.sanitize_report('Findings: May has an MRI.', ['May'], Detector())
         self.assertEqual(clean, 'Findings: [REDACTED] has an MRI.')
 
-    def test_only_valid_full_dates_are_removed(self):
+    def test_clinical_dates_are_preserved(self):
         text = 'MRI 10/5/2012 and 2020-04-17; level 12-1-3; 3 mm; 20200417.'
         clean = engine.sanitize_report(text, [], Detector())
-        self.assertNotIn('10/5/2012', clean)
-        self.assertNotIn('2020-04-17', clean)
-        self.assertNotIn('20200417', clean)
+        self.assertIn('10/5/2012', clean)
+        self.assertIn('2020-04-17', clean)
+        self.assertIn('20200417', clean)
         self.assertIn('3 mm', clean)
+
+    def test_known_birth_date_still_redacted(self):
+        clean = engine.sanitize_report('DOB: 01/02/1970\nKnown DOB 19700102. Comparison 2020-04-17.', ['19700102'], Detector())
+        self.assertNotIn('01/02/1970', clean)
+        self.assertNotIn('19700102', clean)
+        self.assertIn('2020-04-17', clean)
