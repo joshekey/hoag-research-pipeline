@@ -447,7 +447,7 @@ def analyzer():
     return _analyzer
 
 
-REPORT_REDACTION_POLICY = 'patient-identifiers-v2'
+REPORT_REDACTION_POLICY = 'patient-identifiers-v3-preserve-clinical-dates'
 # Generic PERSON, LOCATION, ORGANIZATION, DATE_TIME and numeric NLP entities
 # are deliberately excluded: they misclassify radiology anatomy and notation.
 REPORT_PII_ENTITIES = frozenset({'EMAIL_ADDRESS', 'PHONE_NUMBER', 'US_SSN',
@@ -478,26 +478,9 @@ def sanitize_report(text, identifiers, nlp=None):
              r'physician|referring(?:[ \t]+physician)?|ordering[ \t]+provider|'
              r'dictated by|signed by)[ \t]*[:=][ \t]*[^\r\n]*')
     spans.extend((m.start(), m.end()) for m in re.finditer(field, text))
-    # Keep the existing removal of full calendar dates. Validate the components
-    # so spinal levels, dimensions and sequence notation cannot match as dates.
-    from datetime import date
-    for match in re.finditer(r'(?<![\w/.-])(?:\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|'
-                             r'\d{4}[/.-]\d{1,2}[/.-]\d{1,2}|\d{8})(?!\w|[/.-]\d)', text):
-        value = match.group()
-        try:
-            if len(value) == 8 and value.isdigit():
-                year, month, day = int(value[:4]), int(value[4:6]), int(value[6:])
-            else:
-                parts = re.split(r'[/.-]', value)
-                if len(parts[0]) == 4:
-                    year, month, day = map(int, parts)
-                else:
-                    month, day, year = map(int, parts)
-                    if year < 100: year += 2000
-            date(year, month, day)
-        except ValueError:
-            continue
-        spans.append(match.span())
+    # Preserve clinical dates for longitudinal research. Explicit DOB fields
+    # and supplied patient identifiers remain redacted above. New bundles are
+    # required because previously redacted output cannot recover source dates.
     for pattern in [r'\b\d{3}[-. ]\d{2}[-. ]\d{4}\b',
                     r'\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b']:
         spans.extend(m.span() for m in re.finditer(pattern, text, re.I))
