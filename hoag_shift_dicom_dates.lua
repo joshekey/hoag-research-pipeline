@@ -1,7 +1,7 @@
 -- Hoag research cleanup for previously anonymized DICOM.
--- Set the approved signed offset before deploying. Example: -5114 maps
--- 2014-01-01 to 2000-01-01. Apply only once to each original input.
-local SHIFT_DAYS = nil
+-- Pilot offset: -5114 maps 2014-01-01 to 2000-01-01.
+-- Apply only once to each pre-shift input.
+local SHIFT_DAYS = -5114
 
 Dcmsys.Log.storage("anon_scripts")
 Dcmsys.Log.prefix("hoag_anon")
