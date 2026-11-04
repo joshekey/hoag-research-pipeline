@@ -45,35 +45,16 @@ checkpoints are not automatically updated. Release remains pending review.
 
 ## DCMSYS Lua installation
 
-hoag_anon_study_day.lua is the COMPLETE pilot script, ready to paste into the
-same DCMSYS rule that currently runs the user-supplied anonymization script.
-Back up that existing rule first. Validate in the restricted pilot route on
-original-source studies before using for the rest of the cohort.
-
-StudyDate (0008,0020) becomes an empty DA value. StudyComments (0032,4000)
-contains this marker, appended to existing comments:
+Use hoag_anon_study_day.lua on already-anonymized objects in the restricted pilot route.
+It replaces the earlier full anonymization rule for this cleanup step.
+It removes InstitutionName, empties StudyDate and appends a marker to StudyComments.
 
     HOAG_RESEARCH_STUDY_DAY=1681; BASE_DATE=2014-01-01
 
-The reports use "Day 1681" for the same source date. StudyComments is a text
-attribute, not a standards-defined numeric research-day attribute. The receiver
-must retain it to use the day count; verify it after routing. It may be stripped
-by subsequent anonymization rules. Existing comments are preserved, including
-any source-identifying text they already contained, as in the supplied pilot.
-
-Missing/invalid StudyDate holds output. Other DICOM dates are untouched; those
-can reveal original chronology. This implements the requested narrow field
-scope, not comprehensive date de-identification. Crosswalk validation,
-PatientAge/PatientSex behavior, original tag removals and original UID/accession
-cache keys are retained. The cache remains 30 days, with the same persistence and
-concurrency limitations as the original pilot. Do not feed already-anonymized
-objects back through this rule. Reprocessing original sources after cache
-expiration can create new UIDs/accessions.
-
-Existing exported DICOM files require a separate controlled backfill; installing
-this rule changes future processing only. Do not rerun the UID remapping rule
-over research copies to change their dates. No existing DICOM or report files
-have been edited by creating this package.
+The script retains existing patient identifiers, UIDs, accessions and other dates.
+A valid existing marker with an empty StudyDate allows retry without duplicating
+the marker. Missing StudyDate without a marker holds the object. Test the
+output on one representative anonymized object before processing the batch.
 
 ## Validation
 
