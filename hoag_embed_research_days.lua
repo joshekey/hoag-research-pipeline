@@ -2,18 +2,18 @@
 -- Pilot: inspect saved output before enabling date clearing.
 -- Requires DCMSYS private dictionary support for the keys below.
 local CLEAR_SOURCE_DATES = false
-local CREATOR_TAG = "0011,0010"
+local CREATOR_TAG = "0011,0011"
 local CREATOR = "HOAG_RESEARCH_DAYS"
--- Register creator as LO, 1001-1005 as SL, and 1006 as LO.
+-- Register creator as LO, 1101-1105 as SL, and 1106 as LO.
 -- If your DCMSYS dictionary uses keywords, substitute them below.
 local fields = {
-    {"StudyDate", "0011,1001"},
-    {"SeriesDate", "0011,1002"},
-    {"AcquisitionDate", "0011,1003"},
-    {"ContentDate", "0011,1004"},
-    {"AcquisitionDateTime", "0011,1005"},
+    {"StudyDate", "0011,1101"},
+    {"SeriesDate", "0011,1102"},
+    {"AcquisitionDate", "0011,1103"},
+    {"ContentDate", "0011,1104"},
+    {"AcquisitionDateTime", "0011,1105"},
 }
-local SUFFIX_TAG = "0011,1006"
+local SUFFIX_TAG = "0011,1106"
 
 Dcmsys.Log.storage("anon_scripts")
 Dcmsys.Log.prefix("hoag_anon")
