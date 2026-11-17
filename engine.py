@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pydicom
 from pydicom.errors import InvalidDicomError
-from store import audit, checkpoint, database, idle, progress, research_uid, token
+from store import audit, checkpoint, database, idle, progress, research_uid, token, require_revision
 
 TAGS = ['StudyInstanceUID', 'SeriesInstanceUID', 'SOPInstanceUID', 'SOPClassUID',
         'AccessionNumber', 'PatientID', 'IssuerOfPatientID', 'PatientName',
@@ -450,13 +450,13 @@ def prepare(config, uid, report_id, job=None, nlp=None):
         if count % 20 == 0:
             progress(config, job, count, 'Fingerprinting images for review')
     with database(config) as db:
-        db.execute("UPDATE studies SET report_id=?,report_hash=?,sanitized=?,source_hashes=?,redactions='[]',state='review',last_error='',approved_hash=NULL,approved_fingerprint=NULL WHERE uid=?",
-                   (report_id, report_hash, clean, json.dumps(hashes, sort_keys=True), uid))
+        db.execute("UPDATE studies SET report_id=?,report_hash=?,sanitized=?,source_hashes=?,redactions='[]',state='review',last_error='',approved_hash=NULL,approved_fingerprint=NULL,review_generation=? WHERE uid=?",
+                   (report_id, report_hash, clean, json.dumps(hashes, sort_keys=True), uuid.uuid4().hex, uid))
         audit(db, 'worker', 'report-prepared', token(config, 'study', uid)[:20])
     progress(config, job, 1, 'Report ready for review; inspect images and report before approval')
 
 
-def approve(config, uid, clean, rectangles, note, actor='admin'):
+def approve(config, uid, clean, rectangles, note, actor='admin', *, expected_revision=None):
     if not clean.strip() or len(clean.encode()) > config['max_report_bytes'] or not note.strip():
         raise ValueError('A sanitized report and review note are required')
     if not isinstance(rectangles, list) or len(rectangles) > 100:
@@ -471,10 +471,26 @@ def approve(config, uid, clean, rectangles, note, actor='admin'):
         study = db.execute('SELECT * FROM studies WHERE uid=?', (uid,)).fetchone()
         if not study or study['state'] != 'review':
             raise ValueError('Prepare a report before approving')
+        require_revision(config, study, expected_revision)
         approval_hash = digest(json.dumps([clean, rectangles, note, study['report_id'], study['report_hash'], study['source_hashes']], sort_keys=True).encode())
         db.execute("UPDATE studies SET sanitized=?,redactions=?,review_note=?,approved_hash=?,approved_fingerprint=fingerprint,state='approved' WHERE uid=?",
                    (clean, json.dumps(rectangles), note, approval_hash, uid))
         audit(db, actor, 'approve-report-and-images', token(config, 'study', uid)[:20])
+
+
+def reopen_review(config, uid, expected_revision, actor='admin'):
+    """Revoke approval atomically, preserving all reviewed text and pixel masks."""
+    with database(config) as db:
+        db.execute('BEGIN IMMEDIATE')
+        idle(db)
+        require_scan(db)
+        study = db.execute('SELECT * FROM studies WHERE uid=?', (uid,)).fetchone()
+        if not study or study['state'] not in ('approved', 'exported'):
+            raise ValueError('Only an approved or exported review can be reopened')
+        require_revision(config, study, expected_revision)
+        db.execute("UPDATE studies SET state='review',approved_hash=NULL,approved_fingerprint=NULL,review_generation=? WHERE uid=?",
+                   (uuid.uuid4().hex, uid))
+        audit(db, actor, 'reopen-review', token(config, 'study', uid)[:20])
 
 
 def mask_pixels(ds, rectangles):

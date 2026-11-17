@@ -72,7 +72,7 @@ class ResearchMatchingTests(unittest.TestCase):
         self.assertEqual(client.get('/api/research-queue?bucket=review',headers=auth).get_json()['total'],0)
         self.assertEqual(client.get('/api/research-queue?offset=100',headers=auth).get_json()['rows'],[])
         row=matching.suggestions(self.config,self.uid)['rows'][0];preview=report_browser.preview(self.config,row['source'],row['ref'])
-        report_browser.associate(self.config,self.uid,dict(preview,confirm=True),'synthetic')
+        report_browser.associate(self.config,self.uid,dict(preview,review_revision=workflow.revision(self.config,self.uid),confirm=True),'synthetic')
         self.assertEqual(client.get('/api/research-queue',headers=auth).get_json()['total'],0)
 
     def test_changed_fingerprint_and_cancelled_run_hide_suggestions(self):

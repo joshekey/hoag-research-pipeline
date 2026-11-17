@@ -60,7 +60,7 @@ class TabbedWorkflowTests(unittest.TestCase):
         engine.prepare(self.config,self.uid,report,nlp=workflow.NoNLP())
         with self.assertRaises(ValueError):engine.export_study(self.config,self.uid)
         with database(self.config) as db:study=dict(db.execute('SELECT * FROM studies WHERE uid=?',(self.uid,)).fetchone())
-        engine.approve(self.config,self.uid,study['sanitized'],[],'Synthetic image and report review')
+        engine.approve(self.config,self.uid,study['sanitized'],[],'Synthetic image and report review', expected_revision=workflow.revision(self.config,self.uid))
         folder=engine.export_study(self.config,self.uid)
         self.assertTrue((folder/'Report/report.txt').is_file());self.assertEqual(len(list((folder/'DICOM').glob('*.dcm'))),1)
 
@@ -106,7 +106,7 @@ class TabbedWorkflowTests(unittest.TestCase):
         with database(self.config) as db:report=db.execute("SELECT id FROM files WHERE kind='report'").fetchone()[0]
         engine.prepare(self.config,self.uid,report,nlp=workflow.NoNLP())
         with database(self.config) as db:study=dict(db.execute('SELECT * FROM studies WHERE uid=?',(self.uid,)).fetchone())
-        engine.approve(self.config,self.uid,study['sanitized'],[],'Synthetic complete privacy review')
+        engine.approve(self.config,self.uid,study['sanitized'],[],'Synthetic complete privacy review', expected_revision=workflow.revision(self.config,self.uid))
         base=self.root/'mount-settings';base.mkdir();fstab=base/'fstab';fstab.write_text('')
         targets=dict(zip(['bulk','imaging','output'],[*self.config['source_roots'],self.config['output_root']]))
         account=types.SimpleNamespace(pw_uid=1001,pw_gid=1001)

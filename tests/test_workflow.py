@@ -15,9 +15,14 @@ from pydicom.uid import ExplicitVRLittleEndian, CTImageStorage, generate_uid
 from werkzeug.security import generate_password_hash
 
 import engine
-from store import database, enqueue, initialize, research_uid
+from store import database, enqueue, initialize, research_uid, review_revision
 from webapp import create_app
 from worker import process_one
+
+
+def revision(config, uid):
+    with database(config) as db:
+        return review_revision(config, db.execute('SELECT * FROM studies WHERE uid=?', (uid,)).fetchone())
 
 
 class NoNLP:
@@ -96,7 +101,7 @@ class WorkflowTests(unittest.TestCase):
 
     def approve(self, masks=None):
         self.prepare()
-        engine.approve(self.config, self.uid, self.study()['sanitized'], masks or [], 'Synthetic image/report review completed')
+        engine.approve(self.config, self.uid, self.study()['sanitized'], masks or [], 'Synthetic image/report review completed', expected_revision=revision(self.config, self.uid))
 
     def test_complete_export_source_unchanged_and_manifests(self):
         before = self.path.read_bytes()
