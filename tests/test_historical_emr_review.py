@@ -81,16 +81,16 @@ class HistoricalEMRReviewTests(unittest.TestCase):
         root=Path(__file__).resolve().parents[1]
         html=(root/"templates/index.html").read_text()
         js=(root/"static/app.js").read_text()
-        css=(root/"static/app.css").read_text()
+        css=(root/"static/workspace.css").read_text()
         for screen in ("overview","studies","review","matching","packages","administration"):
             self.assertIn('href="#'+screen+'"',html)
             self.assertIn("'"+screen+"'",js)
         self.assertIn("window.addEventListener('hashchange',showWorkspaceScreen)",js)
         self.assertIn("window.location.hash=target",js)
-        self.assertIn("updateSelectedStudyBanner(d.study)",js)
-        self.assertIn("screen==='review'&&!uid",js)
-        self.assertIn("--accent:#65aaff",css)
-        self.assertIn("#review-report-overview",css)
+        self.assertIn('id="current-study-banner"',html)
+        self.assertIn('id="worklist-patient"',html)
+        self.assertIn('id="worklist-queue"',html)
+        self.assertIn("--accent:#005e92",css)
 
     def test_review_automatically_looks_up_study_reports(self):
         root=Path(__file__).resolve().parents[1]

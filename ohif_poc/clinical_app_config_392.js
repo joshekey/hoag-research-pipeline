@@ -8,13 +8,17 @@ window.config = {
   extensions: [],
   modes: [],
   showStudyList: false,
+  // Same-origin iframe deployment does not provide cross-origin isolation.
+  useSharedArrayBuffer: 'FALSE',
+  maxNumberOfWebWorkers: 2,
+  maxNumRequests: { interaction: 4, thumbnail: 2, prefetch: 2 },
   defaultDataSourceName: 'hoag-clinical',
   dataSources: [
     {
       namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
       sourceName: 'hoag-clinical',
       configuration: {
-        friendlyName: 'HOAG Restricted Pilot',
+        friendlyName: 'Hoag Research Images',
         name: 'HOAG-RESTRICTED',
         qidoRoot: '/ohif/dicomweb',
         wadoRoot: '/ohif/dicomweb',
@@ -27,6 +31,7 @@ window.config = {
         imageRendering: 'wadors',
         thumbnailRendering: 'wadors',
         enableStudyLazyLoad: true,
+        acceptHeader: ['multipart/related; type=application/octet-stream; transfer-syntax=*'],
         staticWado: false,
         omitQuotationForMultipartRequest: true
       }

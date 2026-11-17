@@ -94,7 +94,12 @@ def create_app(config):
         session.setdefault('csrf', secrets.token_urlsafe(32))
         return render_template('index.html', csrf=session['csrf'])
 
-    OHIF_ASSETS = Path('/opt/hoag-research/ohif-assets')
+    OHIF_ASSETS = Path(config.get('ohif_assets', '/opt/hoag-research/ohif-assets'))
+
+    @app.get('/app-config.js')
+    def ohif_configuration():
+        # Always ship the configuration with the gateway, not a stale pilot bundle.
+        return send_from_directory(Path(__file__).parent / 'ohif_poc', 'clinical_app_config_392.js')
 
     @app.get('/viewer')
     def ohif_viewer():
@@ -114,11 +119,14 @@ def create_app(config):
 
     @app.get('/api/study/<uid>/ohif-status')
     def ohif_status(uid):
+        from werkzeug.exceptions import HTTPException
         try:
             authorized_uid(config, uid)
-        except Exception:
-            return jsonify(enabled=False)
-        return jsonify(enabled=(OHIF_ASSETS / 'index.html').is_file())
+        except (HTTPException, ValueError, OSError):
+            return jsonify(enabled=False, reason='Image access is unavailable for this exam. Check the viewer study selector, completed scan, identity conflicts, and active processing jobs in Administration.')
+        if not (OHIF_ASSETS / 'index.html').is_file():
+            return jsonify(enabled=False, reason='OHIF application files are missing on the server. Install the local OHIF bundle; the image preview below remains available.')
+        return jsonify(enabled=True, reason='Viewer available. Original images contain patient information.')
 
     @app.get('/api/historical-emr/candidates')
     def historical_emr_candidates():
@@ -163,6 +171,8 @@ def create_app(config):
         offset = max(0, int(request.args.get('offset', 0)))
         clauses = ['(accession LIKE ? OR patient LIKE ? OR name LIKE ? OR subject LIKE ?)']
         params = [q] * 4
+        if request.args.get('workflow') == 'review':
+            clauses.append("state NOT IN ('approved','exported') AND count > 0")
         for key, column in [('state', 'state'), ('modality', 'modality')]:
             value = request.args.get(key, '')
             if value:
@@ -182,7 +192,7 @@ def create_app(config):
         where = ' AND '.join(clauses)
         with database(config) as db:
             total = db.execute('SELECT count(*) FROM studies WHERE ' + where, params).fetchone()[0]
-            rows = [dict(r) for r in db.execute('SELECT uid,subject,accession,patient,name,date,modality,count,state FROM studies WHERE ' + where + ' ORDER BY ' + sort + ' ' + direction + ',uid LIMIT 100 OFFSET ?', [*params, offset])]
+            rows = [dict(r) for r in db.execute('SELECT uid,subject,accession,patient,name,date,modality,count,state,report_id FROM studies WHERE ' + where + ' ORDER BY ' + sort + ' ' + direction + ',uid LIMIT 100 OFFSET ?', [*params, offset])]
         if request.args.get('paged') == '1':
             return jsonify(rows=rows, total=total, offset=offset, page_size=100)
         return jsonify(rows)

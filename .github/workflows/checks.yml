@@ -16,6 +16,14 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - run: python -m pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
       - run: python -m unittest discover -s tests -v
+      - run: npx playwright install --with-deps chromium
+      - run: python scripts/fetch_ohif_assets.py .browser-fixtures/ohif-assets
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: synthetic-browser-results
+          path: test-results/
       - run: bash -n install.sh
       - run: bash -n scripts/configure
       - run: node --check static/app.js

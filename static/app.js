@@ -43,7 +43,9 @@ async function refresh() {
   $('reindex-catalog').disabled=active();$('reindex-sql').disabled=active();
   $('browser-associate').disabled=active()||associationBusy||!uid||!selectedStudy||selectedStudy.uid!==uid||!browserSelection||!$('browser-confirm').checked;
   await list();
+  await loadExamWorklist();
   await finishPreparation();
+  await finishSelectedExport();
  } catch(e){notice(e.message,true);$('workspace-operation').textContent='CONNECTION PROBLEM · '+e.message+' · Refresh or check dashboard service status.';}finally{refreshing=false;}
 }
 function renderActivity() {
@@ -75,28 +77,52 @@ async function list() {
  if(!result.rows.length){const tr=el('tr');const c=cell(tr,active()?'No studies visible yet. Check the processing phase above.':'No studies match these filters. Clear filters or run an index.');c.colSpan=7;$('study-rows').append(tr);}
  $('catalog-summary').textContent=total.toLocaleString()+' matching studies'+(total?' | Showing '+(offset+1)+'-'+Math.min(offset+100,total):'');$('page-number').value=Math.floor(offset/100)+1;$('page-count').textContent='of '+Math.max(1,Math.ceil(total/100));$('page-number').max=Math.max(1,Math.ceil(total/100));$('previous').disabled=offset===0;$('next').disabled=offset+100>=total;
 }
-async function queue(kind,payload={}){try{const r=await api('/api/jobs',{kind,payload});notice('Job #'+r.id+' queued.');await refresh();return r;}catch(e){notice(e.message,true);return null;}}
+let selectedExportJob=null;
+async function queue(kind,payload={}){try{const r=await api('/api/jobs',{kind,payload});if(kind==='export'&&payload.uid)selectedExportJob={id:r.id,uid:payload.uid};notice('Job #'+r.id+' queued.');await refresh();return r;}catch(e){notice(e.message,true);return null;}}
+async function finishSelectedExport(){
+ if(!selectedExportJob)return;
+ const job=latest.jobs.find(j=>j.id===selectedExportJob.id);
+ if(!job||['queued','running'].includes(job.state))return;
+ const target=selectedExportJob;selectedExportJob=null;
+ if(target.uid!==uid)return;
+ if(job.state!=='completed'){notice('Export '+job.state+': '+job.message,true);return;}
+ if(!reviewDirty&&!reviewSaving)await openStudy(target.uid,'#packages');
+ notice('Export completed. The package is listed below.');
+}
 async function openOHIFStatus(study){
  const generation=reviewRequest;
- $('ohif-pilot-panel').hidden=true;$('ohif-host').hidden=true;
+ $('ohif-pilot-panel').hidden=false;$('ohif-host').hidden=true;
  $('ohif-iframe').removeAttribute('src');
+ $('ohif-status').textContent='Checking viewer availability…';$('ohif-toggle').disabled=true;
+ $('ohif-new-window').hidden=true;
  try{
   const info=await api('/api/study/'+encodeURIComponent(study)+'/ohif-status');
-  if(uid===study&&generation===reviewRequest)$('ohif-pilot-panel').hidden=!info.enabled;
- }catch(_error){if(uid===study&&generation===reviewRequest)$('ohif-pilot-panel').hidden=true;}
+  if(uid!==study||generation!==reviewRequest)return;
+  $('ohif-status').textContent=info.reason||(info.enabled?'Viewer available.':'Viewer unavailable. Check Administration for source readiness and viewer setup.');
+  $('ohif-toggle').disabled=!info.enabled;$('ohif-toggle').textContent='Open OHIF viewer';
+  $('ohif-new-window').hidden=!info.enabled;
+  $('ohif-new-window').href='/viewer?StudyInstanceUIDs='+encodeURIComponent(study);
+ }catch(error){if(uid===study&&generation===reviewRequest)$('ohif-status').textContent='Viewer check failed: '+error.message;}
 }
 const WORKSPACE_SCREENS=new Set(['overview','studies','review','matching','packages','administration','source-settings','jobs','historical-emr-review','database','help']);
 function showWorkspaceScreen(){
  const requested=(window.location.hash||'#studies').slice(1);
  const screen=WORKSPACE_SCREENS.has(requested)?requested:'studies';
- const effective=screen==='review'&&!uid?'studies':screen;
+ const effective=['review','packages'].includes(screen)&&!selectedStudy?'studies':screen;
  for(const id of WORKSPACE_SCREENS){const element=$(id);if(element)element.hidden=id!==effective;}
  $('activity').hidden=!['overview','jobs'].includes(effective);
  $('workflow').hidden=true;
  if(effective==='overview')$('source-settings').hidden=false;
+ const workflow=['studies','matching','review','packages'].includes(effective);
+ $('study-workspace').hidden=!workflow;
+ $('studies').hidden=true;
+ $('exam-empty').hidden=effective!=='studies'||Boolean(selectedStudy);
  const inStudy=['studies','matching','review'].includes(effective)&&Boolean(selectedStudy);
  $('review').hidden=!inStudy;
- const images=effective==='studies', reports=effective==='matching', privacy=effective==='review';
+ const images=effective==='studies'||effective==='matching', reports=effective==='matching', privacy=effective==='review';
+ const imagePanel=$('image-viewport').closest('.panel');
+ if(reports){$('matching-images').append($('ohif-pilot-panel'),imagePanel);}
+ else{document.querySelector('.review-grid').prepend(imagePanel);document.querySelector('.review-grid').before($('ohif-pilot-panel'));}
  document.querySelector('.review-grid').classList.toggle('only-images',images);
  for(const n of document.querySelectorAll('[data-phase]'))n.hidden=!inStudy||!n.dataset.phase.split(' ').some(p=>p==='images'&&images||p==='reports'&&reports||p==='privacy'&&privacy);
  if(inStudy){$('next-reports').hidden=!images;$('next-anonymize').hidden=!reports;$('next-export').hidden=!privacy;}
@@ -105,51 +131,52 @@ function showWorkspaceScreen(){
 }
 window.addEventListener('hashchange',showWorkspaceScreen);
 function makeStudyReviewPrimary(){
- const main=document.querySelector('main');
- const catalog=$('studies'), overview=$('overview'), review=$('review'), matching=$('matching');
- if(main&&catalog&&overview&&review&&matching){
-   main.insertBefore(catalog,overview);
-   main.insertBefore(review,matching);
- }
+ setupExamWorkspace();
 }
 function updateSelectedStudyBanner(study){
  const banner=$('current-study-banner');
  if(!banner)return;
  banner.replaceChildren();
  if(!study){
-   banner.textContent='No DICOM study selected. Choose Review beside a study below.';
+   banner.textContent=uid?'Loading selected exam…':'No exam selected. Choose an exam from the review queue or patient search.';
+   $('exam-action-context').textContent='';renderWorklistSelection();
    return;
  }
  const accession=study.accession||'No accession';
  const modality=study.modality||'Unknown modality';
- const label='Selected: '+(study.name||study.patient||study.subject)+' | '+accession+' | Date: '+(study.date||'unknown')+' | '+modality+' | '+(study.count||0)+' images. Compare independent report records before association.';
- banner.textContent=label;
+ banner.append(el('span','SELECTED PATIENT','selection-label'),el('strong',(study.name||study.patient||study.subject).replaceAll('^',' '),'selection-patient'),el('span','Patient ID: '+(study.patient||'Unknown')+' · DOB: '+examDate(study.dob),'selection-detail'),el('span','SELECTED EXAM · '+accession,'selection-exam'),el('span',modality+' · '+examDate(study.date)+' · '+(study.count||0)+' images','selection-detail'),el('span',examState(study)+' · Original patient information','selection-state'));
+ $('exam-action-context').textContent='Actions apply to '+accession+' · '+(study.patient||study.subject);
+ renderWorklistSelection();
 }
 async function openStudy(value, target='#studies') {
+ if(reviewDirty&&!window.confirm('Discard unsaved review changes and open this exam?'))return;
  const generation=++reviewRequest;uid=value;
  clearActiveStudy();
+ window.location.hash=target;
  updateSelectedStudyBanner(null);
+ showWorkspaceScreen();
  $('sql-patient-name').value='';
  try{const d=await api('/api/study/'+encodeURIComponent(value));if(generation!==reviewRequest)return;
  $('review-report-match-results').replaceChildren();
  $('review-report-match-status').textContent='Searching TXT and SQL reports for this selected study…';
  $('sql-candidate-list').replaceChildren();$('sql-candidate-original').value='';$('sql-candidate-summary').textContent='Select Find SQL candidates to inspect SQL-backed reports. No match is approved automatically.';
- selectedStudy=d.study;updateSelectedStudyBanner(d.study);
+ const identity=d.images.length?JSON.parse(d.images[0].metadata):{};
+ selectedStudy={...d.study,dob:identity.PatientBirthDate||'',issuer:identity.IssuerOfPatientID||''};updateSelectedStudyBanner(selectedStudy);
+ try{sessionStorage.setItem('hoag-selected-exam',value);}catch(_error){}
  void loadSuggestions();$('browser-query').value=(d.study.name||'').split('^')[0].split(',')[0];browserOffset=0;void browseReports().catch(e=>notice(e.message,true));
  $('sql-patient-name').value=d.study.name||'';
- window.location.hash=target;
  showWorkspaceScreen();
  $('review').hidden=false;$('review-title').textContent=(d.study.accession||'No accession')+' | '+d.study.subject;$('review-state').textContent=labels[d.study.state]||d.study.state;
  if(d.study.last_error)notice(d.study.last_error,true);
  $('original').value=d.original_report;$('sanitized').value=d.study.sanitized||'';$('masks').value=d.study.redactions||'[]';$('review-note').value=d.study.review_note||'';$('images-reviewed').checked=false;$('report-reviewed').checked=false;
  $('report-choice').replaceChildren();d.candidates.forEach(addReport);if(d.study.report_id)$('report-choice').value=d.study.report_id;
- $('legacy-txt-tools').open=false;
+ $('legacy-txt-tools').open=true;
  updateLegacyTXTAvailability(d.candidates.length);
  setupDicomSeries(d.images);
  // Independent browser replaces patient-filtered reconciliation.
  void openOHIFStatus(value);
  highlight();showWorkspaceScreen();if(!d.original_report&&d.candidates.length)await candidateText();if(d.images.length)await viewImage();
- }catch(e){if(generation===reviewRequest)notice(e.message,true);}
+ }catch(e){if(generation===reviewRequest){uid=null;clearActiveStudy();updateSelectedStudyBanner(null);showWorkspaceScreen();try{sessionStorage.removeItem('hoag-selected-exam');}catch(_error){}notice('Could not open exam: '+e.message,true);}}
 }
 let reconcileSerial=0;
 async function reconcileStudyReports(detail, study, generation){
@@ -376,9 +403,11 @@ $('previous').onclick=safely(()=>{offset=Math.max(0,offset-100);return list();})
 $('ohif-toggle').onclick=()=>{
  if(!uid)return;
  const host=$('ohif-host'),viewer=$('ohif-iframe');
- if(host.hidden){viewer.src='/viewer?StudyInstanceUIDs='+encodeURIComponent(uid);host.hidden=false;$('ohif-toggle').textContent='Close OHIF viewer';}
+ if(host.hidden){viewer.src='/viewer?StudyInstanceUIDs='+encodeURIComponent(uid);host.hidden=false;$('ohif-toggle').textContent='Close OHIF viewer';$('ohif-status').textContent='Loading OHIF. Series and images load inside the viewer. If it stalls, use Check viewer again or the image preview below.';}
  else{viewer.removeAttribute('src');host.hidden=true;$('ohif-toggle').textContent='Open OHIF viewer';}
 };
+$('ohif-retry').onclick=()=>{if(uid)void openOHIFStatus(uid);};
+$('ohif-iframe').addEventListener('load',()=>{if(!$('ohif-host').hidden)$('ohif-status').textContent='Viewer page loaded. Confirm that the series and images render below; page loading alone does not confirm image retrieval.';});
 $('sql-candidate-refresh').onclick=safely(loadSQLCandidates);
 $('sql-draft-prepare').onclick=safely(async()=>{
   if(!uid)throw Error('Open a study first');
@@ -418,6 +447,7 @@ $('image-viewport').addEventListener('keydown',event=>{
 $('find-report').onclick=safely(async()=>{const reports=await api('/api/reports?q='+encodeURIComponent($('report-search').value));$('report-choice').replaceChildren();reports.forEach(addReport);updateLegacyTXTAvailability(0);$('report-reviewed').checked=false;$('sanitized').value='';highlight();await candidateText();});
 $('sanitized').oninput=()=>{$('report-reviewed').checked=false;markReviewDirty();highlight();};
 $('review-note').oninput=markReviewDirty;
+for(const id of ['images-reviewed','report-reviewed'])$(id).onchange=markReviewDirty;
 function reviewEditable(){return selectedStudy?.state==='review'&&!reviewSaving&&!active();}
 function markReviewDirty(){reviewDirty=true;updateExportSelection();}
 function updateReviewControls(){
@@ -448,6 +478,7 @@ $('approve').onclick=safely(async()=>{
  try{
   await api('/api/study/'+encodeURIComponent(study)+'/approve',body);
   if(study!==uid||generation!==reviewRequest)return;
+  reviewDirty=false;
   await openStudy(study,'#review');notice('Study approved for export.');await refresh();
  }finally{reviewSaving=false;updateExportSelection();}
 });
@@ -554,12 +585,14 @@ function setupWorkflowPanels(){
  $('export').hidden=true;
  $('administration').querySelector('.panel').append($('prepare-batch'),$('export-batch'));
  const imagePanel=document.querySelector('.review-grid > .panel');
+ const matchBody=el('div');matchBody.id='matching-reports';
+ matchBody.append(...$('matching').childNodes);
+ const matchImages=el('div');matchImages.id='matching-images';
+ $('matching').append(matchImages,matchBody);
  imagePanel.dataset.phase='images privacy';
  const reportPanel=document.querySelector('.review-grid > .panel:nth-child(2)');
  reportPanel.dataset.phase='privacy';
- const originalLabel=$('original').closest('label');
- const previewPanel=el('div',undefined,'panel');previewPanel.id='txt-original-panel';previewPanel.dataset.phase='privacy';previewPanel.append(el('h3','Original associated report'),originalLabel);
- $('txt-candidate-panel').after(previewPanel);
+ $('review').querySelector('.section-head').dataset.phase='privacy';
  for(const id of ['txt-candidate-panel','review-report-overview','sql-candidate-panel'])$(id).dataset.phase='reports';
  for(const id of ['legacy-txt-tools'])$(id).dataset.phase='privacy';
  $('legacy-txt-tools').open=true;
@@ -620,8 +653,9 @@ async function loadTXTCandidates(manual=false){
  }catch(error){if(serial===txtSerial&&study===uid&&generation===reviewRequest)$('txt-coverage').textContent='TXT search unavailable: '+error.message;}
 }
 async function prepareSelectedReport(reportID){
+ if(reviewDirty&&!window.confirm('Preparing a new draft replaces unsaved review changes. Continue?'))return;
  const study=uid,result=await queue('prepare',{uid:study,report_id:reportID});
- if(result)preparedJob={id:result.id,uid:study};
+ if(result){preparedJob={id:result.id,uid:study};if(uid===study)reviewDirty=false;}
 }
 async function finishPreparation(){
  if(!preparedJob)return;const job=latest.jobs.find(j=>j.id===preparedJob.id);
@@ -639,3 +673,4 @@ function updateExportSelection(){
 }
 
 setupResearchWorkspace();setupReportBrowser();setupWorkflowPanels();makeStudyReviewPrimary();showWorkspaceScreen();refresh();health();loadResearchQueue();setInterval(refresh,10000);setInterval(health,60000);
+try{const restored=sessionStorage.getItem('hoag-selected-exam');if(restored&&/^[0-9.]+$/.test(restored))void openStudy(restored,window.location.hash||'#matching');}catch(_error){}

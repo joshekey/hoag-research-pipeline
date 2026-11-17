@@ -40,9 +40,11 @@ function setupReportBrowser(){
  $('browser-associate').onclick=safely(async()=>{
   const study=uid,serial=browserSerial,generation=reviewRequest,selection=browserSelection;
   if(!study||!selectedStudy||selectedStudy.uid!==study||!selection)throw Error('Select a DICOM study and preview a report first');
+  if(reviewDirty&&!window.confirm('Changing the associated report replaces unsaved review changes. Continue?'))return;
   if(associationBusy)return;associationBusy=true;$('browser-associate').disabled=true;notice('Associating the selected report. Please wait…');
   try{await api('/api/study/'+encodeURIComponent(study)+'/report-association',{source:selection.source,ref:selection.ref,hash:selection.hash,review_revision:selectedStudy.review_revision,confirm:$('browser-confirm').checked,note:$('browser-note').value});
   if(serial!==browserSerial||study!==uid||generation!==reviewRequest)return;
+  reviewDirty=false;
   await openStudy(study,'#review');void loadResearchQueue();notice('Report associated. Prepare and review de-identification before approval and export.');
   }finally{associationBusy=false;$('browser-associate').disabled=!uid||!selectedStudy||selectedStudy.uid!==uid||!browserSelection||!$('browser-confirm').checked||active();}
  });

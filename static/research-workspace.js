@@ -78,3 +78,80 @@ function setupResearchWorkspace(){
  $('research-queue-prev').onclick=safely(()=>{queueOffset=Math.max(0,queueOffset-100);return loadResearchQueue();});
  $('research-queue-next').onclick=safely(()=>{queueOffset+=100;return loadResearchQueue();});
 }
+
+// One worklist, one explicit exam context. Search never changes selection.
+let worklistMode='queue',worklistOffset=0,worklistSerial=0,worklistRows=[],worklistTimer;
+function examState(study){
+ if(study.state==='approved')return 'Approved · ready to export';
+ if(study.state==='exported')return 'Exported';
+ if(study.state==='conflict')return 'Identity conflict · resolve before review';
+ if(study.state==='review')return 'Needs privacy review';
+ if(study.report_id)return 'Report associated · prepare review';
+ if(study.state==='needs_review')return 'Needs preparation or source review';
+ return 'Needs report match';
+}
+function examDate(value){return /^\d{8}$/.test(value||'')?value.slice(0,4)+'-'+value.slice(4,6)+'-'+value.slice(6):value||'Unknown date';}
+function renderWorklistSelection(){
+ for(const node of $('worklist-rows').querySelectorAll('[data-study]')){
+  const selected=node.dataset.study===uid&&Boolean(selectedStudy);
+  node.setAttribute('aria-pressed',String(selected));
+  node.querySelector('.worklist-selection').textContent=selected?'✓ Selected exam':'';
+ }
+}
+async function loadExamWorklist(){
+ const serial=++worklistSerial;
+ const query=new URLSearchParams({paged:'1',q:$('worklist-search').value,offset:worklistOffset,sort:'date',direction:'desc'});
+ if(worklistMode==='queue')query.set('workflow','review');
+ $('worklist-status').textContent='Loading exams…';
+ try{
+  const data=await api('/api/studies?'+query);
+  if(serial!==worklistSerial)return;
+  if(worklistOffset&&worklistOffset>=data.total){worklistOffset=0;return loadExamWorklist();}
+  worklistRows=data.rows;$('worklist-rows').replaceChildren();
+  for(const study of data.rows){
+   const b=button('',()=>openStudy(study.uid,'#matching'));b.className='secondary worklist-exam';b.dataset.study=study.uid;
+   b.append(el('strong',(study.name||study.patient||study.subject).replaceAll('^',' ')),el('span','', 'worklist-selection'),el('span','Patient ID: '+(study.patient||'Unknown')),el('span',(study.modality||'Unknown modality')+' · '+examDate(study.date)),el('span','Accession: '+(study.accession||'Unknown')),el('span',examState(study)));
+   $('worklist-rows').append(b);
+  }
+  renderWorklistSelection();
+  $('worklist-status').textContent=data.total+' '+(worklistMode==='queue'?'exams needing review':'matching exams')+(data.total?' · '+(worklistOffset+1)+'–'+(worklistOffset+data.rows.length):'');
+  $('worklist-prev').disabled=worklistOffset===0;$('worklist-more').disabled=worklistOffset+100>=data.total;
+ }catch(error){if(serial===worklistSerial){$('worklist-status').textContent='Could not load exams: '+error.message;}}
+}
+async function nextReviewExam(){
+ // Fetch the current queue independently of the patient-search filter.
+ const selected=uid,request=reviewRequest;
+ const params=new URLSearchParams({paged:'1',workflow:'review',sort:'date',direction:'desc',offset:0});
+ const data=await api('/api/studies?'+params);
+ if(uid!==selected||request!==reviewRequest)return;
+ const current=data.rows.findIndex(s=>s.uid===selected);
+ const next=data.rows.slice(current+1).find(s=>s.uid!==selected)||data.rows.find(s=>s.uid!==selected);
+ if(next)await openStudy(next.uid,'#matching');else notice('No other exams need review.');
+}
+function setupExamWorkspace(){
+ const host=$('exam-workspace');
+ const empty=el('div',undefined,'panel');empty.id='exam-empty';empty.append(el('h2','Select an exam to begin'),el('p','Use Review queue to work through outstanding exams, or Patient search to find any indexed patient and exam. Your selection will stay visible here through matching, review, and export.'));host.append(empty);
+ for(const id of ['studies','review','matching','packages'])host.append($(id));
+ // Global operational feedback stays out of the selected-exam header.
+ $('administration').append($('activity'));
+ const main=document.querySelector('main');
+ main.insertBefore($('notice'),$('study-workspace'));
+ main.insertBefore($('workspace-operation'),$('study-workspace'));
+ $('administration').append($('source-errors').closest('section'));
+ // Retire the second, conflicting queue presentation from the exam workspace.
+ $('match-queues').previousElementSibling.hidden=true;
+ $('match-queues').previousElementSibling.previousElementSibling.hidden=true;
+ $('match-queues').hidden=true;
+ for(const [id,mode] of [['worklist-queue','queue'],['worklist-patient','patient']])$(id).onclick=()=>{
+  worklistMode=mode;worklistOffset=0;
+  $('worklist-queue').setAttribute('aria-pressed',String(mode==='queue'));
+  $('worklist-patient').setAttribute('aria-pressed',String(mode==='patient'));
+  void loadExamWorklist();
+ };
+ $('worklist-search').oninput=()=>{clearTimeout(worklistTimer);++worklistSerial;worklistOffset=0;worklistTimer=setTimeout(loadExamWorklist,200);};
+ $('worklist-prev').onclick=()=>{worklistOffset=Math.max(0,worklistOffset-100);void loadExamWorklist();};
+ $('worklist-more').onclick=()=>{worklistOffset+=100;void loadExamWorklist();};
+ $('next-review-exam').onclick=safely(nextReviewExam);
+ window.addEventListener('beforeunload',event=>{if(reviewDirty){event.preventDefault();event.returnValue='';}});
+ void loadExamWorklist();
+}

@@ -64,7 +64,8 @@ def instance_bytes(config, requested_study, authorized_study, series, sop,
     row = mapping[key]
     if type(row.get("size")) is not int or row["size"] > max_bytes:
         raise ValueError("DICOM instance exceeds the approved size limit")
-    path = scoped_instance(config, requested_study, authorized_study, series, sop)
+    import engine
+    path = engine.source_path(config, row)
     with path.open("rb") as f:
         original = f.read(max_bytes + 1)
     if len(original) != row["size"] or len(original) > max_bytes:
