@@ -25,6 +25,44 @@ class ResearchMatchingTests(unittest.TestCase):
         response={'rows':sql or [],'total':len(sql or []),'snapshot':'synthetic','has_more':False,'next_after':''}
         with patch('research_matching.request_broker',return_value=response):matching.build(self.config)
 
+    def test_best_report_after_thousand_candidates_is_ranked_and_deduplicated(self):
+        weak=matching.evidence('Patient: Different Person\nAccession: ACC_TEST_123\nFindings: Earlier report')
+        strong=matching.evidence('Patient: Synthetic Person\nAccession: ACC_TEST_123\nFindings: Correct report')
+        rows=[dict(source='sql',ref=str(i),path='Synthetic report',hash='synthetic',evidence=weak) for i in range(1100)]
+        rows.append(dict(source='sql',ref='best',path='Synthetic best report',hash='synthetic',evidence=strong))
+        def broker(body):
+            start=body['offset'];page=rows[start:start+100]
+            return dict(rows=page,snapshot='synthetic',has_more=start+len(page)<len(rows),next_after=str(start+len(page)))
+        with patch('research_matching.request_broker',side_effect=broker):matching.build(self.config)
+        result=matching.suggestions(self.config,self.uid)
+        self.assertTrue(result['ready']);self.assertEqual(result['sql_status'],'searched')
+        best_sql=next(row for row in result['rows'] if row['source']=='sql')
+        self.assertEqual(best_sql['ref'],'best')
+        self.assertEqual(best_sql['bucket'],'strong')
+        self.assertEqual(len(result['rows']),10)
+        self.assertEqual(len({(r['source'],r['ref']) for r in result['rows']}),10)
+
+    def test_matching_can_cancel_between_candidate_pages_without_publishing(self):
+        info=matching.evidence('Patient: Synthetic Person\nAccession: ACC_TEST_123')
+        rows=[dict(source='sql',ref=str(i),path='Synthetic report',hash='synthetic',evidence=info) for i in range(250)]
+        ranked=0
+        original=matching.rank
+        def rank(*args,**kwargs):
+            nonlocal ranked
+            ranked+=1
+            return original(*args,**kwargs)
+        def checkpoint(*args):
+            if ranked>=100:raise Cancelled('Synthetic cancellation')
+        with patch('research_matching.rank',side_effect=rank),patch('research_matching.checkpoint',side_effect=checkpoint):
+            with self.assertRaises(Cancelled):self.build(rows)
+        self.assertEqual(ranked,100)
+        self.assertFalse(matching.suggestions(self.config,self.uid)['ready'])
+
+    def test_conflicted_studies_do_not_receive_strong_suggestions(self):
+        with database(self.config) as db:db.execute("UPDATE studies SET state='conflict' WHERE uid=?",(self.uid,))
+        self.build()
+        self.assertEqual(matching.suggestions(self.config,self.uid)['rows'],[])
+
     def test_patient_and_generic_date_headers_are_supporting_evidence(self):
         info=matching.evidence('Patient: Synthetic Person\nDate: 01/02/2020\nFindings: Clear lungs')
         self.assertEqual(info['name'],'PERSON SYNTHETIC');self.assertEqual(info['report_date'],'20200102');self.assertEqual(info['exam_date'],'')

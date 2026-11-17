@@ -105,19 +105,32 @@ def build(config, job=None):
         if not studies:break
         for study in studies:
             checkpoint(config,job)
+            if study['state']=='conflict':
+                processed+=1
+                continue
             with database(config) as db:
                 first=db.execute("SELECT metadata FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=? ORDER BY id LIMIT 1",(study['uid'],)).fetchone()
                 meta=json.loads(first[0]) if first else {}
                 studykeys=['N:'+normalize_name(study['name']),'A:'+clean_id(study['accession']),'P:'+clean_id(study['patient']),'U:'+study['uid']]
                 studykeys+=['W:'+word for word in normalize_name(family_name(study['name'])).split()]
                 placeholders=','.join('?' for _ in studykeys)
-                candidates=[dict(r) for r in db.execute("SELECT r.* FROM match_reports r JOIN match_report_keys k ON k.report=r.id WHERE k.key IN ("+placeholders+") GROUP BY r.id ORDER BY MIN(CASE substr(k.key,1,1) WHEN 'U' THEN 0 WHEN 'A' THEN 1 WHEN 'N' THEN 2 WHEN 'P' THEN 3 ELSE 4 END),r.id LIMIT 1001",studykeys)]
             anatomy=regions(meta.get('BodyPartExamined','')+' '+meta.get('SeriesDescription',''))
             ranked=[]
-            for report in candidates[:1000]:
-                info=json.loads(report['evidence']); result=rank(study,info,meta.get('PatientBirthDate',''),anatomy)
-                ranked.append((report,result))
-            ranked.sort(key=lambda x:({'strong':0,'review':1,'differences':2}[x[1]['bucket']],-x[1]['points'],x[0]['source']!='sql',x[0]['id']))
+            after_report=0
+            while True:
+                checkpoint(config,job)
+                with database(config) as db:
+                    candidates=[dict(r) for r in db.execute(
+                        "SELECT * FROM match_reports WHERE id IN (SELECT report FROM match_report_keys WHERE key IN ("
+                        +placeholders+") AND report>?) ORDER BY id LIMIT 100", [*studykeys,after_report])]
+                if not candidates:break
+                for report in candidates:
+                    info=json.loads(report['evidence']); result=rank(study,info,meta.get('PatientBirthDate',''),anatomy)
+                    ranked.append((report,result))
+                # Rank every lookup hit, retaining only the top ten between bounded pages.
+                ranked.sort(key=lambda x:({'strong':0,'review':1,'differences':2}[x[1]['bucket']],-x[1]['points'],x[0]['source']!='sql',x[0]['id']))
+                ranked=ranked[:10]
+                after_report=candidates[-1]['id']
             with database(config) as db:
                 for position,(report,result) in enumerate(ranked[:10]):
                     db.execute('INSERT INTO study_suggestions VALUES (?,?,?,?,?,?)',(study['uid'],report['id'],study['fingerprint'],position,json.dumps(result),run))
