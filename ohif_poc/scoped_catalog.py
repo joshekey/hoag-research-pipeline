@@ -7,11 +7,32 @@ pass an authorization-scoped study UID obtained from trusted server context.
 import json
 import re
 import sqlite3
+from functools import wraps
+from contextlib import closing
 from pathlib import Path
 
 import pydicom
 
 import engine
+
+
+def request_cached(function):
+    """Reuse catalog snapshots only within one authenticated HTTP request.
+
+    Never reuse across requests: changed sources, jobs and access gates must
+    be rechecked. Offline callers retain the original behavior.
+    """
+    @wraps(function)
+    def wrapped(config, *args):
+        from flask import g, has_request_context
+        if not has_request_context():
+            return function(config, *args)
+        cache = g.setdefault('ohif_catalog_snapshots', {})
+        key = (function.__module__, function.__name__, id(config), args)
+        if key not in cache:
+            cache[key] = function(config, *args)
+        return cache[key]
+    return wrapped
 
 UID_PATTERN = re.compile(r"[0-9]+(?:\.[0-9]+)*\Z")
 
@@ -22,6 +43,7 @@ def _uid(value):
     return value
 
 
+@request_cached
 def scoped_catalog(config, requested_study, authorized_study):
     """Return active instance mappings only for ONE independently authorized UID.
 
@@ -32,7 +54,7 @@ def scoped_catalog(config, requested_study, authorized_study):
     if uid != _uid(authorized_study):
         raise PermissionError("Requested study is not authorized")
     catalog = Path(config["state_dir"]) / "workflow.sqlite"
-    with sqlite3.connect(catalog.as_uri() + "?mode=ro", uri=True) as db:
+    with closing(sqlite3.connect(catalog.as_uri() + "?mode=ro", uri=True)) as db:
         db.row_factory = sqlite3.Row
         complete = db.execute("SELECT value FROM settings WHERE key='scan_complete'").fetchone()
         if not complete or complete[0] != "1":

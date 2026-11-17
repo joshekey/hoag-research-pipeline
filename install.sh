@@ -34,6 +34,10 @@ python3 -m venv "$RUNTIME"
 # The service account must be able to traverse and read the root-installed runtime.
 chmod -R a+rX "$RUNTIME"
 runuser -u hoag-indexer -- "$RUNTIME/bin/python" -c 'import flask, pydicom, dicomanonymizer, presidio_analyzer, spacy; spacy.load("en_core_web_sm")'
+if [[ ! -f /opt/hoag-research/ohif-assets/index.html ]]; then
+  "$RUNTIME/bin/python" "$ROOT/scripts/fetch_ohif_assets.py" "$RUNTIME/ohif-assets"
+  chmod -R a+rX "$RUNTIME/ohif-assets"
+fi
 # Recheck after downloads and close the queue/installer race before copying files.
 python3 "$ROOT/install_support.py" reserve
 ACTIVE=()
@@ -70,7 +74,12 @@ for file in "$ROOT"/ohif_poc/*.py; do
   install -m 0644 "$file" "/opt/hoag-research/ohif_poc/$(basename "$file")"
 done
 install -m 0644 "$ROOT/templates/index.html" /opt/hoag-research/templates/index.html
-install -m 0644 "$ROOT/static/app.js" "$ROOT/static/app.css" /opt/hoag-research/static/
+install -m 0644 "$ROOT"/static/*.js "$ROOT"/static/*.css /opt/hoag-research/static/
+install -m 0644 "$ROOT/ohif_poc/clinical_app_config_392.js" /opt/hoag-research/ohif_poc/
+if [[ -d "$RUNTIME/ohif-assets" ]]; then
+  install -d -m 0755 /opt/hoag-research/ohif-assets
+  cp -R "$RUNTIME/ohif-assets/." /opt/hoag-research/ohif-assets/
+fi
 install -m 0755 "$ROOT/scripts/configure" /opt/hoag-research/configure
 install -m 0644 "$ROOT/hoag-dashboard.service" "$ROOT/hoag-worker.service" "$ROOT/hoag-mount.service" /etc/systemd/system/
 install -m 0644 "$ROOT/hoag-sql.service" /etc/systemd/system/

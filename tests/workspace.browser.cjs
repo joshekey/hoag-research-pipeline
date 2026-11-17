@@ -1,0 +1,83 @@
+const {test,expect}=require('@playwright/test');
+test('patient search, review queue, persistent selection and responsive workspace',async({page})=>{
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/');
+ await page.locator('.worklist-exam').filter({hasText:'SYNTHETIC123'}).click();
+ const banner=page.locator('#current-study-banner');
+ await expect(banner).toContainText('ACC_TEST_123');
+ await expect(banner).toContainText('1972-05-14');
+ await page.locator('#worklist-patient').click();
+ await page.locator('#worklist-search').fill('DEMO-002');
+ await expect(page.locator('.worklist-exam')).toHaveCount(1);
+ await expect(banner).toContainText('ACC_TEST_123');
+ await page.locator('.worklist-exam').click();
+ await expect(banner).toContainText('EXAM_B');
+ await page.locator('#primary-navigation a[href="#review"]').click();
+ await expect(banner).toContainText('EXAM_B');
+ await page.reload();
+ await expect(banner).toContainText('EXAM_B');
+ await page.locator('#next-review-exam').click();
+ await expect(banner).toContainText('ACC_TEST_123');
+ await page.screenshot({path:'test-results/workspace-desktop.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});
+ await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+ await page.screenshot({path:'test-results/workspace-mobile.png',fullPage:true});
+ expect(errors).toEqual([]);
+});
+
+test('official OHIF bundle retrieves and renders synthetic DICOM pixels',async({page})=>{
+ const errors=[];const failed=[];const frames=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ page.on('response',r=>{if(r.url().includes('/ohif/dicomweb/')&&r.status()>=400)failed.push(r.status()+' '+new URL(r.url()).pathname);if(r.url().includes('/frames/')&&r.status()===200)frames.push(r.url());});
+ await page.goto('/');
+ await page.locator('.worklist-exam').filter({hasText:'SYNTHETIC123'}).click();
+ await page.locator('#primary-navigation a[href="#studies"]').click();
+ await expect(page.locator('#primary-navigation a[href="#studies"]')).toHaveAttribute('aria-selected','true');
+ await expect(page.locator('#matching')).toBeHidden();
+ await expect(page.locator('#ohif-toggle')).toBeEnabled();
+ await page.locator('#ohif-toggle').click();
+ const viewer=page.frameLocator('#ohif-iframe');
+ await expect.poll(()=>frames.length,{timeout:60000}).toBeGreaterThan(0);
+ await expect(viewer.locator('canvas').first()).toBeVisible();
+ // Rendered pixels must vary; an empty/black canvas is not a successful viewer.
+ await expect.poll(async()=>viewer.locator('canvas').evaluateAll(canvases=>canvases.some(c=>{if(!c.width||!c.height)return false;const copy=document.createElement('canvas');copy.width=c.width;copy.height=c.height;const ctx=copy.getContext('2d');ctx.drawImage(c,0,0);const data=ctx.getImageData(0,0,c.width,c.height).data;let low=255,high=0;for(let i=0;i<data.length;i+=4){low=Math.min(low,data[i]);high=Math.max(high,data[i]);}return high-low>30;})),{timeout:60000}).toBe(true);
+ await page.screenshot({path:'test-results/ohif-rendered.png',fullPage:true});
+ // Exercise a real JPEG codestream through OHIF's worker/decoder as well.
+ const previousFrames=frames.length;
+ await page.locator('.worklist-exam').filter({hasText:'DEMO-002'}).click();
+ await expect(page.locator('#current-study-banner')).toContainText('EXAM_B');
+ await page.locator('#primary-navigation a[href="#studies"]').click();
+ await expect(page.locator('#ohif-toggle')).toBeEnabled();
+ await page.locator('#ohif-toggle').click();
+ await expect.poll(()=>frames.length,{timeout:60000}).toBeGreaterThan(previousFrames);
+ await expect.poll(async()=>viewer.locator('canvas').evaluateAll(canvases=>canvases.some(c=>{if(!c.width||!c.height)return false;const copy=document.createElement('canvas');copy.width=c.width;copy.height=c.height;const ctx=copy.getContext('2d');ctx.drawImage(c,0,0);const data=ctx.getImageData(0,0,c.width,c.height).data;let low=255,high=0;for(let i=0;i<data.length;i+=4){low=Math.min(low,data[i]);high=Math.max(high,data[i]);}return high-low>30;})),{timeout:60000}).toBe(true);
+ expect(frames.every(url=>/\/scope\/([0-9.]+)\/studies\/\1\//.test(url))).toBe(true);
+ expect(failed).toEqual([]);expect(errors).toEqual([]);
+});
+
+test('associate, prepare, review, approve and export the selected exam',async({page})=>{
+ await page.goto('/');
+ await page.locator('.worklist-exam').filter({hasText:'SYNTHETIC123'}).click();
+ await page.locator('#browser-rows button').first().click();
+ await expect(page.locator('#browser-text')).toHaveValue(/Clear lungs/);
+ await page.locator('#browser-confirm').check();
+ await page.locator('#browser-associate').click();
+ await expect(page.locator('#review')).toBeVisible();
+ await expect(page.locator('#prepare')).toBeEnabled();
+ await page.locator('#prepare').click();
+ await expect(page.locator('#sanitized')).not.toHaveValue('',{timeout:30000});
+ await expect(page.locator('#approve')).toBeEnabled();
+ await page.locator('#review-note').fill('Synthetic end-to-end review');
+ await page.locator('#images-reviewed').check();
+ await page.locator('#report-reviewed').check();
+ await page.locator('#approve').click();
+ await expect(page.locator('#current-study-banner')).toContainText('Approved · ready to export');
+ await page.locator('#primary-navigation a[href="#packages"]').click();
+ await expect(page.locator('#export-selected')).toContainText('ACC_TEST_123');
+ await page.locator('#export-selected-study').click();
+ await expect(page.locator('#exports table')).toBeVisible({timeout:30000});
+ await expect(page.locator('#current-study-banner')).toContainText('ACC_TEST_123');
+ await page.locator('#worklist-patient').click();
+ await page.locator('#worklist-search').fill('SYNTHETIC123');
+ await expect(page.locator('.worklist-exam')).toContainText('Exported');
+});

@@ -169,3 +169,27 @@ test('dirty review controls block export even when the last loaded state was app
   assert.equal(f.requests.some(r=>r.path==='/api/jobs'),false);
  }finally{f.dom.window.close();}
 });
+
+test('declining unsaved changes keeps the patient, exam and draft selected',async()=>{
+ const f=fixture({studies:{'1.2.3':{state:'review',report_id:31,sanitized:'Prepared text'}}});
+ try{
+  await settle();await f.open('1.2.3');await settle();
+  f.$('sanitized').value='Unsaved correction';f.$('sanitized').dispatchEvent(new f.w.Event('input'));
+  f.w.confirm=()=>false;
+  await f.open('1.2.4');await settle();
+  assert.match(f.$('current-study-banner').textContent,/EXAM_A/);
+  assert.equal(f.$('sanitized').value,'Unsaved correction');
+  assert.equal(f.$('export-selected-study').disabled,true);
+ }finally{f.dom.window.close();}
+});
+
+test('slow exam details cannot override a tab chosen while loading',async()=>{
+ const f=fixture();try{
+  await settle();const release=f.hold('/api/study/1.2.3');
+  const opening=f.$('worklist-rows').querySelector('[data-study="1.2.3"]').onclick();await pause();
+  f.w.location.hash='#studies';await settle();release();await opening;await settle();
+  assert.equal(f.w.location.hash,'#studies');
+  assert.equal(f.$('matching').hidden,true);
+  assert.match(f.$('current-study-banner').textContent,/EXAM_A/);
+ }finally{f.dom.window.close();}
+});

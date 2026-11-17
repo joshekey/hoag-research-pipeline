@@ -3,22 +3,28 @@
  * clinical gateway approval and single-study allowlist setup.
  * No external imaging endpoints or token prompts.
  */
+const selectedExamUID = new URLSearchParams(window.location.search).get('StudyInstanceUIDs') || 'invalid';
+const selectedExamRoot = '/ohif/dicomweb/scope/' + encodeURIComponent(selectedExamUID);
 window.config = {
   routerBasename: '/',
   extensions: [],
   modes: [],
   showStudyList: false,
+  // Same-origin iframe deployment does not provide cross-origin isolation.
+  useSharedArrayBuffer: 'FALSE',
+  maxNumberOfWebWorkers: 2,
+  maxNumRequests: { interaction: 4, thumbnail: 2, prefetch: 2 },
   defaultDataSourceName: 'hoag-clinical',
   dataSources: [
     {
       namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
       sourceName: 'hoag-clinical',
       configuration: {
-        friendlyName: 'HOAG Restricted Pilot',
+        friendlyName: 'Hoag Research Images',
         name: 'HOAG-RESTRICTED',
-        qidoRoot: '/ohif/dicomweb',
-        wadoRoot: '/ohif/dicomweb',
-        wadoUriRoot: '/ohif/dicomweb',
+        qidoRoot: selectedExamRoot,
+        wadoRoot: selectedExamRoot,
+        wadoUriRoot: selectedExamRoot,
         qidoSupportsIncludeField: false,
         supportsReject: false,
         supportsStow: false,
@@ -27,6 +33,7 @@ window.config = {
         imageRendering: 'wadors',
         thumbnailRendering: 'wadors',
         enableStudyLazyLoad: true,
+        acceptHeader: ['multipart/related; type=application/octet-stream; transfer-syntax=*'],
         staticWado: false,
         omitQuotationForMultipartRequest: true
       }
