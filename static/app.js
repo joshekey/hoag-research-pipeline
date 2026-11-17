@@ -5,6 +5,7 @@ let uid = null, offset = 0, total = 0, imageURL = null, latest = null, zoom = 1;
 let refreshing = false, listing = 0, imageRequest = 0, reviewRequest = 0, foldersInitialized = false;
 let dicomSeries = new Map(), dicomFrames = new Map(), inspectedFrames = new Set();
 let imageReady=false,imageController=null,imageError='';
+let workspaceReportMode='find',workspaceModeRequest=0;
 const states = ['unmatched','candidate','ambiguous','conflict','review','approved','exported','needs_review'];
 const labels = {unmatched:'No indexed TXT match · SQL not checked',candidate:'One candidate',ambiguous:'Multiple candidates',conflict:'Identity conflict',review:'Ready for review',approved:'Approved',exported:'Exported',needs_review:'Needs rescan / review'};
 function el(tag, text, cls) { const n = document.createElement(tag); if(text !== undefined)n.textContent = text; if(cls)n.className = cls; return n; }
@@ -107,28 +108,20 @@ async function openOHIFStatus(study){
 }
 const WORKSPACE_SCREENS=new Set(['overview','studies','review','matching','packages','administration','source-settings','jobs','historical-emr-review','database','help']);
 function showWorkspaceScreen(){
- const requested=(window.location.hash||'#studies').slice(1);
- const screen=WORKSPACE_SCREENS.has(requested)?requested:'studies';
- const effective=['review','packages'].includes(screen)&&!selectedStudy?'studies':screen;
- for(const id of WORKSPACE_SCREENS){const element=$(id);if(element)element.hidden=id!==effective;}
- $('activity').hidden=!['overview','jobs'].includes(effective);
- $('workflow').hidden=true;
- if(effective==='overview')$('source-settings').hidden=false;
- const workflow=['studies','matching','review','packages'].includes(effective);
- $('study-workspace').hidden=!workflow;
- $('studies').hidden=true;
- $('exam-empty').hidden=effective!=='studies'||Boolean(selectedStudy);
- const inStudy=['studies','matching','review'].includes(effective)&&Boolean(selectedStudy);
- $('review').hidden=!inStudy;
- const images=effective==='studies'||effective==='matching', reports=effective==='matching', privacy=effective==='review';
- const imagePanel=$('image-viewport').closest('.panel');
- if(reports){$('matching-images').append($('ohif-pilot-panel'),imagePanel);}
- else{document.querySelector('.review-grid').prepend(imagePanel);document.querySelector('.review-grid').before($('ohif-pilot-panel'));}
- document.querySelector('.review-grid').classList.toggle('only-images',images);
- for(const n of document.querySelectorAll('[data-phase]'))n.hidden=!inStudy||!n.dataset.phase.split(' ').some(p=>p==='images'&&images||p==='reports'&&reports||p==='privacy'&&privacy);
- if(inStudy){$('next-reports').hidden=!images;$('next-anonymize').hidden=!reports;$('next-export').hidden=!privacy;}
- for(const a of document.querySelectorAll('#primary-navigation a')){const selected=a.getAttribute('href')==='#'+effective;a.setAttribute('aria-selected',String(selected));a.tabIndex=selected?0:-1;if(selected)a.setAttribute('aria-current','step');else a.removeAttribute('aria-current');}
- updateExportSelection();window.scrollTo(0,0);
+ const screen=(window.location.hash||'#review').slice(1);
+ const workflow=['studies','matching','review','packages'].includes(screen)||!WORKSPACE_SCREENS.has(screen);
+ for(const id of WORKSPACE_SCREENS){const node=$(id);if(node)node.hidden=workflow||id!==screen;}
+ $('study-workspace').hidden=!workflow;$('activity').hidden=!['overview','jobs'].includes(screen);$('workflow').hidden=true;
+ if(screen==='overview')$('source-settings').hidden=false;
+ if(workflow){$('review').hidden=false;$('matching').hidden=false;$('packages').hidden=false;}
+ $('exam-empty').hidden=Boolean(selectedStudy)||!workflow;
+ $('primary-navigation').hidden=true;
+ for(const n of document.querySelectorAll('[data-phase]'))n.hidden=false;
+ for(const id of ['ohif-pilot-panel','txt-candidate-panel','review-report-overview','sql-candidate-panel','next-reports','next-anonymize','next-export'])$(id).hidden=true;
+ if($('workspace-report-mode'))setWorkspaceReportMode(workspaceReportMode);
+ $('review').querySelector('.section-head').hidden=true;
+ if(screen==='packages'&&$('workspace-final'))$('workspace-final').open=true;
+ updateExportSelection();
 }
 window.addEventListener('hashchange',showWorkspaceScreen);
 function makeStudyReviewPrimary(){
@@ -151,7 +144,7 @@ function updateSelectedStudyBanner(study){
 }
 async function openStudy(value, target='#studies') {
  if(reviewDirty&&!window.confirm('Discard unsaved review changes and open this exam?'))return;
- const generation=++reviewRequest;uid=value;
+ const generation=++reviewRequest,modeRequest=workspaceModeRequest;uid=value;
  clearActiveStudy();
  window.location.hash=target;
  updateSelectedStudyBanner(null);
@@ -175,8 +168,8 @@ async function openStudy(value, target='#studies') {
  updateLegacyTXTAvailability(d.candidates.length);
  setupDicomSeries(d.images);
  // Independent browser replaces patient-filtered reconciliation.
- void openOHIFStatus(value);
- highlight();showWorkspaceScreen();if(!d.original_report&&d.candidates.length)await candidateText();if(d.images.length)await viewImage();
+ // The native image viewer is the primary viewer; no OHIF requests are issued.
+ if(modeRequest===workspaceModeRequest)setWorkspaceReportMode(d.study.report_id?'draft':'find');highlight();showWorkspaceScreen();if(!d.original_report&&d.candidates.length)await candidateText();if(d.images.length)await viewImage();
  }catch(e){if(generation===reviewRequest){uid=null;clearActiveStudy();updateSelectedStudyBanner(null);showWorkspaceScreen();try{sessionStorage.removeItem('hoag-selected-exam');}catch(_error){}notice('Could not open exam: '+e.message,true);}}
 }
 let reconcileSerial=0;
@@ -321,8 +314,9 @@ function setupDicomSeries(images){
  images.forEach((item,i)=>{
   const meta=JSON.parse(item.metadata||'{}'),key=String(meta.SeriesInstanceUID||'unclassified');
   if(!dicomSeries.has(key))dicomSeries.set(key,{description:String(meta.SeriesDescription||meta.Modality||'Series'),images:[]});
-  dicomSeries.get(key).images.push({id:item.id,label:'Instance '+(i+1)});
+  dicomSeries.get(key).images.push({id:item.id,sop:meta.SOPInstanceUID,series:key,label:'Instance '+(i+1)});
  });
+ for(const series of dicomSeries.values())series.images.forEach((image,index)=>{image.label='Instance '+(index+1);});
  const selector=$('dicom-series');selector.replaceChildren();
  let n=0;for(const [key,series] of dicomSeries){
   const option=el('option',(++n)+'. '+series.description+' ('+series.images.length+' instances)');
@@ -364,7 +358,9 @@ async function viewImage() {
  $('image-viewport').setAttribute('aria-busy','true');updateReviewControls();
  if(!id){$('image-viewport').setAttribute('aria-busy','false');return;}
  try{
-  const res=await fetch('/api/image/'+encodeURIComponent(id)+'?frame='+frame,{cache:'no-store',signal:imageController.signal});
+  const windowQuery=new URLSearchParams({frame,study_uid:study,window:$('image-window').value});
+  if($('image-window').value==='custom'){windowQuery.set('center',$('window-center').value);windowQuery.set('width',$('window-width').value);}
+  const res=await fetch('/api/image/'+encodeURIComponent(id)+'?'+windowQuery,{cache:'no-store',signal:imageController.signal});
   if(!res.ok){const err=await res.json();throw Error(err.error||'Preview unavailable');}
   const blob=await res.blob();
   if(generation!==imageRequest||study!==uid)return;
@@ -387,19 +383,41 @@ async function viewImage() {
   $('image').removeAttribute('src');$('mask-canvas').width=0;notice(e.message,true);
  }
 }
-function masks() {const value=JSON.parse($('masks').value);if(!Array.isArray(value)||value.some(r=>!Array.isArray(r)||r.length!==4||r.some(v=>!Number.isInteger(v)||v<0)||r[2]===0||r[3]===0))throw Error('Masks must be [[x,y,width,height]] with positive sizes');return value;}
+function masks(){
+ const doc=JSON.parse($('masks').value);
+ const entries=Array.isArray(doc)?doc.map(rect=>({scope:'exam',rect})):doc?.version===2&&Array.isArray(doc.masks)?doc.masks:null;
+ if(!entries||entries.length>100)throw Error('Masks must be legacy rectangles or a version 2 mask document (up to 100 masks).');
+ for(const m of entries){if(!['exam','series','image'].includes(m.scope)||!Array.isArray(m.rect)||m.rect.length!==4||m.rect.some(v=>!Number.isSafeInteger(v)||v<0)||!m.rect[2]||!m.rect[3])throw Error('Invalid mask rectangle or scope');}
+ return doc;
+}
+function maskEntries(){const doc=masks();return Array.isArray(doc)?doc.map(rect=>({scope:'exam',rect})):doc.masks;}
+function writeMasks(entries){$('masks').value=JSON.stringify({version:2,masks:entries});}
+function currentImage(){return currentSeries()?.images.find(i=>String(i.id)===$('image-choice').value);}
+function visibleMaskEntries(){const image=currentImage();return maskEntries().filter(m=>m.scope==='exam'||m.series_uid===image?.series&&(m.scope==='series'||m.sop_uid===image?.sop&&m.frame===(Number($('frame').value)||0)));}
+function newMask(rect){
+ const image=currentImage();if(!image?.sop||!image?.series)throw Error('Image identity unavailable. Reload the exam before masking.');
+ const mask={scope:$('mask-scope').value,series_uid:image.series,rect};
+ if(mask.scope==='image'){mask.sop_uid=image.sop;mask.frame=Number($('frame').value)||0;}
+ return mask;
+}
 function drawMasks(preview=null) {
  const canvas=$('mask-canvas'),image=$('image');if(!imageReady||!image.naturalWidth)return;
  canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
  const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);
  try{
-  for(const rect of [...masks(),...(preview?[preview]:[])]){
+  for(const rect of [...visibleMaskEntries().map(m=>m.rect),...(preview?[preview]:[])]){
    const [x,y,w,h]=rect;ctx.fillStyle='rgba(0,0,0,.75)';ctx.fillRect(x,y,w,h);
    ctx.strokeStyle=rect===preview?'#F9902D':'#72d8c3';ctx.lineWidth=Math.max(1,canvas.width/350);ctx.strokeRect(x,y,w,h);
   }
  }catch(e){notice(e.message,true);}
 }
-function applyZoom() {const stage=$('image-stage');stage.style.width=(zoom*100)+'%';$('zoom-value').textContent=Math.round(zoom*100)+'%';}
+function applyZoom(){
+ const stage=$('image-stage'),image=$('image'),viewport=$('image-viewport');
+ const height=parseFloat(getComputedStyle(viewport).maxHeight)||650;
+ const fit=image.naturalWidth&&image.naturalHeight?Math.min(viewport.clientWidth,height*image.naturalWidth/image.naturalHeight):viewport.clientWidth;
+ stage.style.width=fit?Math.round(fit*zoom)+'px':'100%';$('zoom-value').textContent=Math.round(zoom*100)+'%';
+}
+window.addEventListener('resize',()=>{cancelMaskDrag();applyZoom();drawMasks();});
 let dragStart=null;
 function cancelMaskDrag(){dragStart=null;}
 function point(event) {
@@ -423,7 +441,7 @@ $('mask-canvas').onpointerup=event=>{
  const valid=canDrawMask()&&dragStart.request===imageRequest&&dragStart.study===uid;
  const rectangle=dragRectangle(point(event));cancelMaskDrag();
  if(valid&&rectangle[2]&&rectangle[3]){
-  try{const all=masks();if(all.length>=100)throw Error('Maximum 100 masks per exam. Undo a mask before adding another.');all.push(rectangle);$('masks').value=JSON.stringify(all);$('images-reviewed').checked=false;markReviewDirty();}
+  try{const all=maskEntries();if(all.length>=100)throw Error('Maximum 100 masks per exam. Undo a mask before adding another.');all.push(newMask(rectangle));writeMasks(all);$('images-reviewed').checked=false;markReviewDirty();}
   catch(e){notice(e.message,true);}
  }
  drawMasks();
@@ -436,15 +454,17 @@ function updateMaskControls(){
  $('mask-canvas').style.pointerEvents=ready&&$('draw-mask').checked?'auto':'none';
  const status=$('mask-status');if(!status)return;
  const locked=['approved','exported'].includes(selectedStudy?.state);
- status.textContent=!selectedStudy?'Select an exam to review its images.':locked?'Review locked. Reopen the review to change pixel masks.':active()||reviewSaving?'Processing. Mask editing resumes when the operation finishes.':!editable?'To enable masks: associate a report, open Review, then prepare the review draft.':!imageReady?(imageError?'Image unavailable: '+imageError+'. Choose View to retry.':'Loading image. Drawing is disabled until it is ready.'):$('draw-mask').checked?'Drag over the image to cover identifying text. Release to add the rectangle; Undo removes the last mask.':'Enable Draw pixel mask, then drag over the image.';
- let count;try{count=masks().length;}catch(_error){count='Invalid';}
- $('mask-summary').textContent=count+' masks · Applies to EVERY image and frame in this exam · '+(reviewDirty?'Unsaved changes — Save draft to keep your work.':locked?'Saved with approval.':editable?'Draft saved on server. Approval is still required for export.':'Prepare a review draft to begin.');
+ status.textContent=!selectedStudy?'Select an exam to review its images.':locked?'Review locked. Reopen the review to change pixel masks.':active()||reviewSaving?'Processing. Mask editing resumes when the operation finishes.':!editable?'To enable masks: link a report on the right, then prepare its privacy draft.':!imageReady?(imageError?'Image unavailable: '+imageError+'. Choose View to retry.':'Loading image. Drawing is disabled until it is ready.'):$('draw-mask').checked?'Drag over the image to cover identifying text. Release to add the rectangle; Undo removes the last mask.':'Enable Draw pixel mask, then drag over the image.';
+ let count,shown;try{count=maskEntries().length;shown=visibleMaskEntries().length;}catch(_error){count='Invalid';shown=0;}
+ $('mask-summary').textContent=count+' masks total · '+shown+' on this frame · '+(reviewDirty?'Unsaved changes — Save draft to keep your work.':locked?'Saved with approval.':editable?'Draft saved on server. Approval is still required for export.':'Prepare a review draft to begin.');
  $('mask-review-step').hidden=editable||locked;
+ $('mask-scope').disabled=!editable;
+ renderMaskList();
 }
 $('zoom-in').onclick=()=>{cancelMaskDrag();zoom=Math.min(4,zoom+.25);applyZoom();drawMasks();};
 $('zoom-out').onclick=()=>{cancelMaskDrag();zoom=Math.max(.25,zoom-.25);applyZoom();drawMasks();};
 $('zoom-fit').onclick=()=>{cancelMaskDrag();zoom=1;applyZoom();drawMasks();};
-$('undo-mask').onclick=safely(()=>{if(!reviewEditable())return;const all=masks();all.pop();$('masks').value=JSON.stringify(all);$('images-reviewed').checked=false;markReviewDirty();drawMasks();});
+$('undo-mask').onclick=safely(()=>{if(!reviewEditable())return;const all=maskEntries();all.pop();writeMasks(all);$('images-reviewed').checked=false;markReviewDirty();drawMasks();});
 $('masks').oninput=()=>{cancelMaskDrag();$('images-reviewed').checked=false;markReviewDirty();drawMasks();};
 $('masks').onchange=$('masks').oninput;
 async function health() {try{const data=await api('/api/health');$('health').replaceChildren();for(const share of data.shares){const c=el('div',undefined,'card');c.append(el('h3',share.slot),el('p',share.path),el('p',share.message,share.ok?'good':'warning'));if(share.ok)c.append(el('p',bytes(share.free)+' free / '+bytes(share.total)));$('health').append(c);if(share.output)$('export-space').textContent=share.ok?'Output capacity: '+bytes(share.free)+' free of '+bytes(share.total):'Output unavailable: '+share.message;}}catch(e){notice(e.message,true);} }
@@ -519,6 +539,7 @@ function updateReviewControls(){
  $('save-mask-draft').disabled=!editable||!reviewDirty;
  $('reopen-review').hidden=!locked;
  $('reopen-review').disabled=reviewSaving||active();
+ if($('review-final-button')){$('review-final-button').disabled=!selectedStudy||active()||reviewSaving;renderFinalSummary();}
  updateMaskControls();
 }
 async function saveReviewDraft(){
@@ -639,8 +660,9 @@ $('errors-refresh').onclick=safely(async()=>{const rows=await api('/api/source-e
 let reviewDirty=false,reviewSaving=false;
 let selectedStudy=null,txtSerial=0,txtOffset=0,txtTotal=0,txtSelected=null,preparedJob=null;
 function clearActiveStudy(){
+ if($('workspace-final'))$('workspace-final').open=false;
  imageController?.abort();
- cancelMaskDrag();imageReady=false;zoom=1;$('draw-mask').checked=false;applyZoom();
+ cancelMaskDrag();if($('mask-scope'))$('mask-scope').value='image';if($('image-window')){$('image-window').value='auto';$('window-center').hidden=$('window-width').hidden=true;}imageReady=false;zoom=1;$('draw-mask').checked=false;applyZoom();
  reviewDirty=false;
  clearSuggestions();clearBrowserPreview();$('browser-note').value='';selectedStudy=null;txtSelected=null;txtOffset=0;++txtSerial;++imageRequest;++reconcileSerial;
  if(imageURL){URL.revokeObjectURL(imageURL);imageURL=null;}
@@ -665,13 +687,13 @@ function setupWorkflowPanels(){
  const maskHelp=el('div',undefined,'mask-help');
  const maskStatus=el('p');maskStatus.id='mask-status';maskStatus.setAttribute('role','status');
  const maskSummary=el('p');maskSummary.id='mask-summary';
- const reviewStep=button('Open Review to prepare masks',()=>{location.hash='#review';});reviewStep.id='mask-review-step';
+ const reviewStep=button('Choose report / prepare draft',()=>{setWorkspaceReportMode(selectedStudy?.report_id?'draft':'find');$('workspace-reports').scrollIntoView({block:'start'});});reviewStep.id='mask-review-step';
  const saveMasks=button('Save draft',safely(saveReviewDraft));saveMasks.id='save-mask-draft';
  maskHelp.append(maskStatus,maskSummary,reviewStep,saveMasks);$('image-viewport').before(maskHelp);
- const coordinates=el('details');coordinates.append(el('summary','Advanced mask coordinates (all images)'));
+ const coordinates=el('details');coordinates.append(el('summary','Advanced mask document'));
  const maskLabel=$('masks').closest('label'),maskExplanation=maskLabel.nextElementSibling;
  maskLabel.before(coordinates);coordinates.append(maskLabel,maskExplanation);
- $('ohif-pilot-panel').append(el('p','OHIF is for image inspection. To remove identifying pixels from exported images, open Review and use Draw pixel mask in Source image review. OHIF annotations are not export masks.','muted'));
+
  const matchBody=el('div');matchBody.id='matching-reports';
  matchBody.append(...$('matching').childNodes);
  const matchImages=el('div');matchImages.id='matching-images';
@@ -760,5 +782,78 @@ function updateExportSelection(){
  updateReviewControls();
 }
 
-setupResearchWorkspace();setupReportBrowser();setupWorkflowPanels();makeStudyReviewPrimary();showWorkspaceScreen();refresh();health();loadResearchQueue();setInterval(refresh,10000);setInterval(health,60000);
+function setWorkspaceReportMode(mode){
+ workspaceReportMode=mode;
+ if(!$('workspace-report-mode'))return;
+ $('matching').hidden=mode!=='find';$('linked-report-content').hidden=mode!=='draft';
+ $('find-report-tab').setAttribute('aria-pressed',String(mode==='find'));
+ $('draft-report-tab').setAttribute('aria-pressed',String(mode==='draft'));
+}
+function renderMaskList(){
+ const list=$('mask-list');if(!list)return;list.replaceChildren();
+ let entries;try{entries=maskEntries();}catch(_error){return;}
+ $('undo-mask').disabled=!reviewEditable()||!entries.length;
+ entries.forEach((m,index)=>{
+  const row=el('div',undefined,'mask-entry');
+  const series=[...dicomSeries.entries()].find(([key])=>key===m.series_uid)?.[1];
+  const image=series?.images.find(i=>i.sop===m.sop_uid);
+  const scope=m.scope==='exam'?'Entire exam (existing mask)':m.scope==='series'?'Every image/frame in '+(series?.description||m.series_uid):(series?.description||m.series_uid)+' · '+(image?.label||m.sop_uid)+' · Frame '+(m.frame+1);
+  row.append(el('span',(index+1)+'. '+scope+' · '+m.rect.join(', ')));
+  const remove=button('Remove',()=>{if(!reviewEditable())return;const current=maskEntries();current.splice(index,1);writeMasks(current);$('images-reviewed').checked=false;markReviewDirty();drawMasks();});remove.disabled=!reviewEditable();remove.setAttribute('aria-label','Remove mask '+(index+1));row.append(remove);list.append(row);
+ });
+}
+function renderFinalSummary(){
+ if(!$('final-review-summary'))return;
+ const s=selectedStudy;let entries=[];try{entries=maskEntries();}catch(_error){}
+ $('final-review-summary').replaceChildren(el('strong',s?(s.name||s.patient)+' · '+(s.accession||s.subject):'No exam selected'),el('p','Report: '+(s?.report_id?'Linked report #'+s.report_id:'No report linked')),el('p',entries.length+' masks: '+entries.filter(m=>m.scope==='image').length+' image/frame, '+entries.filter(m=>m.scope==='series').length+' series, '+entries.filter(m=>m.scope==='exam').length+' entire exam'),el('p','Destination: '+(latest?.output||'Not configured')));
+ $('workspace-save-state').textContent=reviewSaving?'Saving…':reviewDirty?'Unsaved changes':s?.state==='approved'?'Approved · ready to export':s?.state==='exported'?'Exported':s?.state==='review'?'Draft saved on server · not approved':s?.report_id?'Report linked · prepare privacy draft':'Choose and verify a report';
+ $('review-final-button').disabled=!s||!['review','approved','exported'].includes(s.state)||active()||reviewSaving;
+}
+function setupSingleWorkspace(){
+ const saveDraft=$('save-review-draft');
+ const grid=document.querySelector('.review-grid'),imagePanel=grid.children[0],reportPanel=grid.children[1];
+ grid.id='single-workspace';imagePanel.id='workspace-images';imagePanel.querySelector('h3').textContent='Images & pixel masking';
+ const imageControls=$('dicom-series').closest('.toolbar'),seriesLabel=$('dicom-series').closest('label');
+ const jump=el('details');jump.id='image-jump';jump.append(el('summary','Jump to instance / frame'));seriesLabel.after(jump);jump.append($('image-choice').closest('label'),$('frame').closest('label'),$('view'));
+ const viewerHelp=$('image-viewport').previousElementSibling;
+ $('image-viewport').after($('dicom-position').closest('.dicom-scroll-controls'),$('image-info'),$('dicom-review-progress'),viewerHelp);
+
+ const right=el('div');right.id='workspace-reports';
+ const modes=el('div',undefined,'toolbar');modes.id='workspace-report-mode';
+ const find=button('Find / change report',()=>{++workspaceModeRequest;setWorkspaceReportMode('find');});find.id='find-report-tab';
+ const draft=button('Linked report & privacy draft',()=>{++workspaceModeRequest;setWorkspaceReportMode('draft');});draft.id='draft-report-tab';modes.append(find,draft);
+ const linked=el('div');linked.id='linked-report-content';linked.append($('legacy-txt-tools'),reportPanel);
+ right.append(modes,$('matching'),linked);grid.append(right);
+ $('matching-image-comparison').remove();
+ const select=el('select');select.id='browser-report-choice';select.setAttribute('aria-label','Choose a report to preview');
+ select.onchange=safely(()=>select.value===''?clearBrowserPreview():previewBrowserItem(Number(select.value)));
+ $('browser-split').before(select);
+ const all=el('details');all.id='report-results-details';all.append(el('summary','All report results & matching evidence'),$('browser-results'));$('browser-split').after(all);
+ $('report-browser').querySelector('h3').textContent='Find a report';
+ $('report-browser').querySelector('p').textContent='Preview a report, compare its patient and exam details with the banner, then explicitly link it.';
+ const searchControls=$('browser-query').closest('.toolbar');const filters=el('details');filters.append(el('summary','Search / filter report sources'),searchControls);$('browser-status').before(filters);
+ $('browser-associate').textContent='Use this report for this exam';
+ $('prepare').textContent='Prepare privacy draft';
+ const originalDetails=el('details');originalDetails.append(el('summary','Linked original report'),$('original').closest('label'));reportPanel.querySelector('h3').after(originalDetails);
+ const scopeLabel=el('label','Apply NEW masks to');const scope=el('select');scope.id='mask-scope';
+ for(const [value,label]of [['image','This image / frame only'],['series','Every image and frame in this series']]){const o=el('option',label);o.value=value;scope.append(o);}scopeLabel.append(scope);$('image-viewport').after(scopeLabel);
+ scope.onchange=()=>{cancelMaskDrag();drawMasks();};
+ const masksList=el('div');masksList.id='mask-list';scopeLabel.after(masksList);
+ const advanced=$('masks').closest('details');advanced.querySelector('p').textContent='Version 2 stores scoped masks. Legacy rectangle lists retain their entire-exam scope. Color masking and defacing are unsupported.';
+ const windowControls=el('div',undefined,'toolbar');const preset=el('select');preset.id='image-window';preset.setAttribute('aria-label','Image window preset');
+ for(const [value,label]of [['auto','Auto contrast'],['dicom','DICOM window'],['lung','CT lung'],['soft','CT soft tissue'],['bone','CT bone'],['custom','Custom window']]){const o=el('option',label);o.value=value;preset.append(o);}
+ const center=el('input');center.id='window-center';center.type='number';center.value='40';center.setAttribute('aria-label','Window center');
+ const width=el('input');width.id='window-width';width.type='number';width.min='1';width.value='400';width.setAttribute('aria-label','Window width');
+ windowControls.append(preset,center,width,button('Apply window',()=>void viewImage()));$('image-viewport').before(windowControls);
+ preset.onchange=()=>{center.hidden=width.hidden=preset.value!=='custom';void viewImage();};center.hidden=width.hidden=true;
+ const finish=el('details');finish.id='workspace-final';finish.append(el('summary','Final review, approval & export'));
+ const summary=el('div');summary.id='final-review-summary';finish.append(summary,document.querySelector('.approval-panel'),document.querySelector('.approval-actions'),$('packages'));
+ const footer=el('div',undefined,'workspace-footer');const state=el('span');state.id='workspace-save-state';state.setAttribute('role','status');const finalButton=button('Review & approve →',()=>{finish.open=true;renderFinalSummary();finish.scrollIntoView({block:'start'});},false);finalButton.id='review-final-button';
+ footer.append(state,saveDraft,finalButton);$('review').append(footer,finish);
+ $('review').querySelector('.section-head').hidden=true;
+ $('ohif-pilot-panel').hidden=true;
+ setWorkspaceReportMode('find');renderFinalSummary();
+}
+
+setupResearchWorkspace();setupReportBrowser();setupWorkflowPanels();makeStudyReviewPrimary();setupSingleWorkspace();showWorkspaceScreen();refresh();health();loadResearchQueue();setInterval(refresh,10000);setInterval(health,60000);
 try{const restored=sessionStorage.getItem('hoag-selected-exam');if(restored&&/^[0-9.]+$/.test(restored))void openStudy(restored,window.location.hash||'#matching');}catch(_error){}

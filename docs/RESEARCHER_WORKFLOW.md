@@ -1,4 +1,4 @@
-> Version 1.5.0: start with the [patient/exam workspace guide](WORKSPACE_REVAMP.md). The navigation below describes the older interface.
+> Version 1.6.0: start with the [patient/exam workspace guide](WORKSPACE_REVAMP.md). The navigation below describes the older interface.
 
 # Researcher workflow — 1.4.0
 

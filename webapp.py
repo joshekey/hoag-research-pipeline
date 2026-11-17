@@ -442,6 +442,9 @@ def create_app(config):
         if row['size'] > config['max_dicom_bytes']:
             raise ValueError('Instance exceeds preview memory limit')
         ds = pydicom.dcmread(engine.source_path(config, row))
+        selected_uid = request.args.get('study_uid')
+        if selected_uid and str(ds.StudyInstanceUID) != selected_uid:
+            raise ValueError('Image does not belong to the selected exam')
         frame = int(request.args.get('frame', 0))
         frames = int(ds.get('NumberOfFrames', 1))
         if frame < 0 or frame >= frames:
@@ -452,8 +455,30 @@ def create_app(config):
         if int(ds.get('SamplesPerPixel', 1)) != 1:
             raise ValueError('Color previews are unsupported; use a validated external viewer')
         pixels = pixels.astype(float) * float(ds.get('RescaleSlope', 1)) + float(ds.get('RescaleIntercept', 0))
-        low, high = np.percentile(pixels, [1, 99])
-        normalized = np.clip((pixels - low) / max(high - low, 1) * 255, 0, 255).astype('uint8')
+        preset = request.args.get('window', 'auto')
+        if preset == 'auto':
+            low, high = np.percentile(pixels, [1, 99])
+            normalized = np.clip((pixels - low) / max(high - low, 1) * 255, 0, 255).astype('uint8')
+        else:
+            if preset in ('lung', 'soft', 'bone'):
+                if str(ds.get('Modality', '')) != 'CT':
+                    raise ValueError('CT window presets require a CT image; use Auto or Custom')
+                center, width = {'lung': (-600, 1500), 'soft': (40, 400), 'bone': (500, 2000)}[preset]
+            elif preset == 'dicom':
+                def first(value):
+                    return value[0] if isinstance(value, (list, pydicom.multival.MultiValue)) else value
+                if 'WindowCenter' not in ds or 'WindowWidth' not in ds:
+                    raise ValueError('No DICOM window is stored; choose Auto or Custom')
+                if str(ds.get('VOILUTFunction', 'LINEAR')) != 'LINEAR':
+                    raise ValueError('This DICOM window function is unsupported; choose Auto or Custom')
+                center, width = float(first(ds.WindowCenter)), float(first(ds.WindowWidth))
+            elif preset == 'custom':
+                center, width = float(request.args.get('center', 'nan')), float(request.args.get('width', 'nan'))
+            else:
+                raise ValueError('Unknown image window preset')
+            if not np.isfinite(center) or not np.isfinite(width) or width < 1:
+                raise ValueError('Window center must be finite and width must be at least 1')
+            normalized = ((pixels > center - .5) * 255).astype('uint8') if width == 1 else np.clip(((pixels - (center - .5)) / (width - 1) + .5) * 255, 0, 255).astype('uint8')
         if ds.get('PhotometricInterpretation') == 'MONOCHROME1':
             normalized = 255 - normalized
         output = io.BytesIO()

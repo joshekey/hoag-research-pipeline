@@ -85,15 +85,15 @@ test('late report responses never appear under a different selected study',async
  }finally{f.dom.window.close();}
 });
 
-test('late study details cannot overwrite a newer selection and keyboard tabs work',async()=>{
+test('late study details cannot overwrite a newer selection in the single workspace',async()=>{
  const f=fixture();try{
   await settle();const release=f.hold('/api/study/1.2.3');
   const first=f.open('1.2.3');await pause();await f.open('1.2.4');release();await first;await settle();
   assert.match(f.$('current-study-banner').textContent,/EXAM_B/);
-  const images=f.w.document.querySelector('#primary-navigation a[href="#studies"]');
-  images.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));await settle();
-  assert.equal(f.w.location.hash,'#matching');
-  assert.equal(f.w.document.querySelector('#primary-navigation a[href="#matching"]').getAttribute('aria-selected'),'true');
+  f.$('draft-report-tab').click();
+  assert.equal(f.$('linked-report-content').hidden,false);
+  assert.equal(f.$('workspace-images').parentElement.id,'single-workspace');
+  assert.equal(f.$('primary-navigation').hidden,true);
  }finally{f.dom.window.close();}
 });
 
@@ -188,8 +188,8 @@ test('slow exam details cannot override a tab chosen while loading',async()=>{
  const f=fixture();try{
   await settle();const release=f.hold('/api/study/1.2.3');
   const opening=f.$('worklist-rows').querySelector('[data-study="1.2.3"]').onclick();await pause();
-  f.w.location.hash='#studies';await settle();release();await opening;await settle();
-  assert.equal(f.w.location.hash,'#studies');
+  f.$('draft-report-tab').click();await settle();release();await opening;await settle();
+  assert.equal(f.$('linked-report-content').hidden,false);
   assert.equal(f.$('matching').hidden,true);
   assert.match(f.$('current-study-banner').textContent,/EXAM_A/);
  }finally{f.dom.window.close();}

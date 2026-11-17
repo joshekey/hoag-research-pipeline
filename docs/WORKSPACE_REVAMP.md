@@ -1,108 +1,100 @@
-# Patient and exam workspace
+# Single patient/exam review workspace — 1.6.0
 
-The daily workflow starts in **Review queue** or **Patient search**. Both open
-the same exam workspace. Search and pagination do not change the selected exam.
-The persistent banner identifies the patient, patient ID, date of birth,
-accession, modality, date, and workflow status. Selection is restored within
-the same browser tab after refresh; report text and review edits are not stored
-in browser storage. Unsaved edits require confirmation before leaving the exam.
+Choose an exam in **Review queue** or **Patient search**. The selected patient,
+DOB, accession, modality and date stay visible above two panes. Search does not
+change the selected exam. Old Images/Matching/Review/Export links resolve into
+this same workspace; they no longer move the images between screens.
 
-1. **Match report**: browse a scrolling report list beside a larger reader. Use Previous/Next report to compare records; expand ranked suggestions or image comparison when needed.
-   Previewing a report does not associate it. Explicitly confirm the relationship.
-2. **Review**: prepare the associated report, inspect the original and sanitized
-   text and every image/frame, apply masks, save a draft as needed, and approve. Reopen an approved review
-   before corrections. Existing revision and source-integrity checks remain.
-3. **Export**: confirm the selected exam and destination, then export the approved
-   package. Queue and patient search remain available. Approved/exported exams
-   leave the review queue but remain searchable.
+## Daily workflow
 
-Source setup, indexing, matching rebuilds and jobs are under Administration.
-The stylesheet uses Hoag's blue `#005E92` and orange `#F9902D`, with white/paper
-surfaces and dark text. Palette reference: https://www.hoag.org/.
+1. Inspect the exam in **Images & pixel masking** on the left. Select a series,
+   scroll through instances/frames with Previous/Next, the slider, arrow keys,
+   or the mouse wheel when drawing is off. Expand **Jump to instance / frame**
+   for direct navigation. **Fit** fits the whole image; zoom adds scrollable detail.
+2. On the right, use **Find / change report**. Choose a result from the selector
+   or use Previous/Next report. Search/filter and the complete result list with
+   ranked suggestions expand in place; hundreds of reports do not push the
+   preview below the list. Check the independent report identity and explicitly
+   confirm the relationship, then **Use this report for this exam**.
+3. **Linked report & privacy draft** stays beside the images. Prepare the privacy
+   draft, inspect the original, and edit sanitized text. Preparation is explicit
+   and requires a linked report. Re-preparing asks before replacing review work.
+4. Once the draft is ready and an image is loaded, enable **Draw pixel mask**.
+   Choose the scope for NEW masks, drag, and release. The live overlay uses
+   original image coordinates even when zoomed. A scope change or image change
+   cancels unfinished drawing. **Undo last mask** and individual **Remove** actions
+   make correction explicit. Existing masks do not change when the scope selector
+   changes. The list names every mask's target and the count on the current frame.
+5. **Save draft** stores text, masks and notes without approval. Saved work survives
+   reopening; review confirmations must be made again. Unsaved changes trigger
+   a warning before leaving the exam. No patient content is stored in browser storage.
+6. **Review & approve** opens the summary below the same workspace. Verify the
+   report, mask scope counts, destination, review confirmations and note. Approve
+   explicitly, then **Export selected approved study** separately. Source changes,
+   stale revisions and incomplete review still block export.
 
-## OHIF deployment and verification
+## Mask scopes and compatibility
 
-`research_build --no-configure` now installs **all** dashboard JavaScript and CSS,
-including the report browser, workspace, and new theme. No manual static-file
-copy is needed. If OHIF assets are absent, the installer downloads the official
-OHIF 3.9.2 static layer by pinned SHA-256 before stopping services. Existing
-OHIF assets and the root-controlled study selector are preserved.
+- **This image / frame only** binds the rectangle to the source Series Instance
+  UID, SOP Instance UID and zero-based frame. Other frames and instances remain
+  unchanged, including other frames in a multiframe file.
+- **Every image and frame in this series** binds the rectangle to the source
+  Series Instance UID. It applies to all instances/frames in that series, not
+  another series in the same exam. Rectangles must fit every targeted instance.
+- **Entire exam (existing mask)** identifies legacy masks. Existing rectangle
+  arrays retain their original all-instance/all-frame meaning and remain readable
+  and exportable. Editing a legacy mask collection writes a version 2 document
+  while explicitly retaining the old masks' `exam` scope. Nothing is silently
+  narrowed or migrated merely by opening an exam.
 
-`/app-config.js` is always served from the application release, so an older
-configuration in the asset folder cannot silently send requests to pilot paths.
-SharedArrayBuffer is disabled for this non-isolated iframe deployment, and
-request/decoder concurrency is bounded. All DICOM and static routes retain login.
-Browser responses remain `no-store`; no persistent DICOM cache is introduced.
-Each viewer instance uses an exam-scoped DICOMweb root. Discovery returns only
-that exam, and requests for another exam under that root are rejected. OHIF cannot
-silently switch to a different patient while the workspace banner stays unchanged.
+The stored form is `{"version":2,"masks":[...]}`. Entries contain `scope`, `rect`
+(`[x,y,width,height]`), and the required source UID/frame fields. Unknown versions,
+foreign targets, mismatched SOP/series pairs, nonexistent frames, invalid rectangles
+and more than 100 masks are rejected. Targets and geometry are checked on scoped
+save and approval; export rechecks source integrity and applies masks before UID
+anonymization. Zero replaces the selected stored samples. Other pixels and source
+files remain unchanged. A burned-in-annotation instance needs masks on every frame;
+covering the right identifier locations still requires human review.
 
-The viewer displays a reason when unavailable instead of disappearing. Check
-the scan, source access, active jobs, identity conflicts, assets and existing
-`/etc/hoag-research/ohif-pilot-study.uid` selector. The selector supports a single
-UID or the existing `ALL_INDEXED` mode. This release does not widen that selector.
-For a complete catalog rollout, the server administrator must configure the
-intended scope. Missing assets can also be staged with:
+No database migration or reindex is required for this update. Old approved content
+hashes remain valid. Once version 2 masks have been saved, older releases cannot
+interpret those documents; use the pre-update backup and a deliberate recovery
+plan rather than downgrading the application over newer review data.
 
-```bash
-python scripts/fetch_ohif_assets.py /path/to/new/ohif-assets
-```
+## Focused image viewer
 
-The adapter resolves the catalog once per metadata request and reads each source
-header once. Individual requests still recheck authorization and source state.
-Native multi-frame images and JPEG/JPEG-LS/JPEG2000/RLE encapsulated frames are
-served without altering source samples. Bit-packed frames and other unsupported
-syntaxes still return an explicit error; browser rendering depends on supported
-SOP classes and decoder capabilities. The existing 128 MiB per-instance retrieval
-limit remains. This is not a general-purpose PACS.
+The primary workspace no longer loads OHIF or depends on OHIF assets, viewer gates,
+iframes, Docker downloads or a separate DICOMweb client. It uses authenticated,
+no-store, same-origin PNG previews decoded by the server. The selected exam UID
+is checked against the returned source instance. Multiframe previews decode the
+requested frame; native and supported JPEG/JPEG-LS/JPEG2000 sources use the installed
+pydicom codecs. There is no persistent image cache in the browser.
 
-## Regression checks
+Controls include Auto contrast, the first stored LINEAR DICOM window, CT lung,
+CT soft tissue, CT bone, and explicit custom center/width. CT presets reject
+non-CT images. Missing/unsupported windows have visible recovery errors; Auto or
+Custom can be selected. The viewer supports monochrome image review and pixel
+masking, not diagnostic measurements, MPR, color masking, or defacing. Unsupported
+formats should use specialist processing. Native instance order is catalog order;
+frame counts are discovered when an instance opens. Display tracking is not an
+approval or proof that every frame has been reviewed.
 
-```bash
-npm ci
-npm test
-python -m unittest discover -s tests -v
-npx playwright install chromium
-python scripts/fetch_ohif_assets.py .browser-fixtures/ohif-assets
-npm run test:browser
-```
+Existing gated legacy/historical OHIF routes and assets are preserved for backwards
+compatibility. They are not loaded by the primary workspace; installation no longer
+downloads OHIF. This change does not widen historical or SQL access permissions.
 
-Use `PYTHON_EXECUTABLE` for a non-default Python runtime. The browser harness binds
-only to loopback, creates synthetic DICOM/reports, runs the real Flask routes and
-worker, and never connects to hospital sources. Its NLP stub is test-only.
-Browser tests verify selection/search/navigation, mobile width, report association
-through actual export, and rendered pixels in the official OHIF bundle (native
-and real JPEG). Synthetic API tests cover multi-frame retrieval, source mutation,
-authorization revocation, queue states, and bounded catalog/header reads.
+## Installation and validation
 
-After deployment, test a representative hospital study in Images, including
-switching series and frames, then matching/review/export on an approved test case.
-Synthetic tests cannot establish network-share latency or compatibility with
-every production acquisition format. Do not rerun indexing just to test the UI.
+Use the repository installer with `--no-configure` on an existing installation.
+It copies the new mask module and all application assets, preserves configuration,
+and prints a pre-update backup location. Version should show **1.6.0**. Verify service
+status and `manage.py doctor`, then hard-refresh the browser. No production deployment
+is implied by this guide or passing tests.
 
-
-## Drawing and saving masks (1.5.1)
-
-1. Associate the correct report in **Match report**.
-2. Open **Review** and choose **Prepare associated report**. The message beside
-   the image explains when editing is unavailable. Preparation must finish first.
-3. Wait for the source image to load, enable **Draw pixel mask**, and drag a
-   rectangle over identifying text. An orange outline follows the drag; release
-   to add the mask. **Undo last mask** removes the latest rectangle. Coordinates
-   are original image pixels even when zoomed. Changing images cancels an
-   unfinished drag, and drawing is disabled while the next image loads.
-4. **Save draft** beside the image or below the review saves report edits,
-   masks, and notes on the server. It does not approve or export. Reloading the
-   exam restores saved work; review confirmations must be made again.
-5. Review every necessary image/frame and the sanitized report, complete the
-   confirmations and review note, then approve. Approval checks that masks fit
-   every instance; unsupported color masks are rejected. Export remains separate.
-
-Masks currently apply to **every instance and frame in the exam**. The shaded
-preview shows the region to remove; export replaces its stored samples with
-zero (display appearance depends on DICOM interpretation/window settings).
-This is not per-series or per-frame masking. If a suitable common rectangle
-cannot cover identifiers without obscuring required image content, use specialist
-processing. OHIF annotations do not create export masks; use Source image review.
-Re-preparing a draft replaces saved and unsaved text/masks and asks for confirmation.
-No patient report or image content is saved in browser storage.
+Regression checks cover legacy approval/export compatibility; scoped frame/series
+output samples; untouched source bytes; malformed/foreign mask targets; mixed image
+sizes; stale revisions; native and JPEG browser rendering; window errors and recovery;
+100 report results; responsive layout; draft save/reload; approval and exact export
+pixels across four instances in two series. Run `npm test`, `python -m unittest discover
+-s tests -v`, and `npm run test:browser` (with Playwright Chromium installed). The full
+Python suite targets Linux; some permission/system-module tests do not run on Windows.

@@ -1,3 +1,5 @@
+> Version 1.6.0 uses a single image/report workspace and scoped pixel masks. Start with the [current workspace guide](docs/WORKSPACE_REVAMP.md).
+
 # HOAG Research Pipeline
 
 Release **1.4.0** adds a researcher review queue, automatically ranked TXT/SQL
@@ -71,7 +73,7 @@ sudo systemctl --no-pager --full status hoag-dashboard hoag-worker hoag-mount ho
 sudo -u hoag-indexer /opt/hoag-research/venv/bin/python /opt/hoag-research/manage.py doctor
 ```
 
-The version command should print `1.4.0`. If doctor reports unavailable mounts, connect
+The version command should print `1.6.0`. If doctor reports unavailable mounts, connect
 them in **Sources & mounts**, then rerun doctor and scan the selected folders. Refresh
 the GUI with Ctrl+Shift+R. No successful doctor check is implied by installation alone.
 
