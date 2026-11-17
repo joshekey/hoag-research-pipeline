@@ -425,6 +425,14 @@ def create_app(config):
         engine.reopen_review(config, uid, body.get('review_revision'), config['username'])
         return jsonify(ok=True)
 
+    @app.post('/api/study/<uid>/review-draft')
+    def save_review_draft(uid):
+        body = request.get_json()
+        revision = engine.save_review_draft(config, uid, body.get('text'), body.get('rectangles', []),
+                                           body.get('note', ''), config['username'],
+                                           expected_revision=body.get('review_revision'))
+        return jsonify(saved=True, approved=False, review_revision=revision)
+
     @app.get('/api/image/<int:file_id>')
     def image(file_id):
         with database(config) as db:

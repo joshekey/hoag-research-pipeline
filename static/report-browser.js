@@ -40,6 +40,7 @@ function clearBrowserPreview(){
 }
 async function browseReports(){
  clearBrowserPreview();const serial=browserSerial;
+ browserItems=[];$('browser-rows').replaceChildren();
  $('browser-status').textContent='Searching report sources…';$('report-browser').setAttribute('aria-busy','true');$('browser-search').disabled=true;
  try{
  const data=await api('/api/report-browser/search',{source:$('browser-source').value,q:$('browser-query').value,sort:$('browser-sort').value,offset:browserOffset});
@@ -57,7 +58,7 @@ async function browseReports(){
  }
  $('browser-status').textContent=data.groups.map(g=>g.source.toUpperCase()+': '+g.total+' reports; showing '+g.rows.length+' from '+(browserOffset+1)).concat(data.errors).join(' | ');
  $('browser-prev').disabled=browserOffset===0;$('browser-next').disabled=!data.groups.some(g=>browserOffset+100<g.total);
- }catch(error){if(serial===browserSerial)$('browser-status').textContent='Search failed: '+error.message+'. Check source/index status and retry.';}finally{$('browser-search').disabled=false;$('report-browser').setAttribute('aria-busy','false');}
+ }catch(error){if(serial===browserSerial)$('browser-status').textContent='Search failed: '+error.message+'. Check source/index status and retry.';}finally{if(serial===browserSerial){$('browser-search').disabled=false;$('report-browser').setAttribute('aria-busy','false');}}
 }
 function setupReportBrowser(){
  const panel=$('report-browser'),split=el('div'),list=el('div'),reader=el('div');

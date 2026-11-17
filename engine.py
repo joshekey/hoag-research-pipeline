@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pydicom
 from pydicom.errors import InvalidDicomError
-from store import audit, checkpoint, database, idle, progress, research_uid, token, require_revision
+from store import audit, checkpoint, database, idle, progress, research_uid, token, require_revision, review_revision
 
 TAGS = ['StudyInstanceUID', 'SeriesInstanceUID', 'SOPInstanceUID', 'SOPClassUID',
         'AccessionNumber', 'PatientID', 'IssuerOfPatientID', 'PatientName',
@@ -510,14 +510,38 @@ def prepare(config, uid, report_id, job=None, nlp=None):
     progress(config, job, 1, 'Report ready for review; inspect images and report before approval')
 
 
-def approve(config, uid, clean, rectangles, note, actor='admin', *, expected_revision=None):
-    if not clean.strip() or len(clean.encode()) > config['max_report_bytes'] or not note.strip():
-        raise ValueError('A sanitized report and review note are required')
+def validate_review_content(config, clean, rectangles, note):
+    if not isinstance(clean, str) or len(clean.encode()) > config['max_report_bytes']:
+        raise ValueError('Invalid sanitized report')
+    if not isinstance(note, str) or len(note) > 10000:
+        raise ValueError('Review note must be text of up to 10000 characters')
     if not isinstance(rectangles, list) or len(rectangles) > 100:
         raise ValueError('Pixel masks must be a list of up to 100 rectangles')
     for rect in rectangles:
         if not isinstance(rect, list) or len(rect) != 4 or any(type(v) is not int or v < 0 for v in rect) or rect[2] <= 0 or rect[3] <= 0:
             raise ValueError('Each mask is [x, y, width, height] with nonnegative origin and positive size')
+
+
+def save_review_draft(config, uid, clean, rectangles, note, actor='admin', *, expected_revision=None):
+    validate_review_content(config, clean, rectangles, note)
+    with database(config) as db:
+        db.execute('BEGIN IMMEDIATE')
+        idle(db)
+        require_scan(db)
+        study = db.execute('SELECT * FROM studies WHERE uid=?', (uid,)).fetchone()
+        if not study or study['state'] != 'review':
+            raise ValueError('Prepare or reopen a review before saving a draft')
+        require_revision(config, study, expected_revision)
+        db.execute("UPDATE studies SET sanitized=?,redactions=?,review_note=?,approved_hash=NULL,approved_fingerprint=NULL WHERE uid=?",
+                   (clean, json.dumps(rectangles), note, uid))
+        audit(db, actor, 'save-review-draft', token(config, 'study', uid)[:20])
+        return review_revision(config, db.execute('SELECT * FROM studies WHERE uid=?', (uid,)).fetchone())
+
+
+def approve(config, uid, clean, rectangles, note, actor='admin', *, expected_revision=None):
+    validate_review_content(config, clean, rectangles, note)
+    if not clean.strip() or not note.strip():
+        raise ValueError('A sanitized report and review note are required')
     with database(config) as db:
         db.execute('BEGIN IMMEDIATE')
         idle(db)
@@ -526,7 +550,12 @@ def approve(config, uid, clean, rectangles, note, actor='admin', *, expected_rev
         if not study or study['state'] != 'review':
             raise ValueError('Prepare a report before approving')
         require_revision(config, study, expected_revision)
-        require_study_consistency(db.execute("SELECT metadata FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=?", (uid,)).fetchall())
+        instances = db.execute("SELECT * FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=?", (uid,)).fetchall()
+        require_study_consistency(instances)
+        if rectangles:
+            for row in instances:
+                header = pydicom.dcmread(source_path(config, row), stop_before_pixels=True)
+                validate_mask_bounds(header, rectangles)
         approval_hash = digest(json.dumps([clean, rectangles, note, study['report_id'], study['report_hash'], study['source_hashes']], sort_keys=True).encode())
         db.execute("UPDATE studies SET sanitized=?,redactions=?,review_note=?,approved_hash=?,approved_fingerprint=fingerprint,state='approved' WHERE uid=?",
                    (clean, json.dumps(rectangles), note, approval_hash, uid))
@@ -548,18 +577,23 @@ def reopen_review(config, uid, expected_revision, actor='admin'):
         audit(db, actor, 'reopen-review', token(config, 'study', uid)[:20])
 
 
+def validate_mask_bounds(ds, rectangles):
+    if int(ds.get('SamplesPerPixel', 1)) != 1:
+        raise ValueError('Color pixel masking is unsupported; quarantine this study')
+    h, w = int(ds.Rows), int(ds.Columns)
+    for x, y, width, height in rectangles:
+        if x + width > w or y + height > h:
+            raise ValueError('Pixel mask is outside an image; masks apply to every instance. Use masks that fit all image dimensions before approval')
+
+
 def mask_pixels(ds, rectangles):
     if not rectangles:
         return
     import numpy as np
     from pydicom.uid import ExplicitVRLittleEndian
+    validate_mask_bounds(ds, rectangles)
     pixels = ds.pixel_array.copy()
-    h, w = int(ds.Rows), int(ds.Columns)
-    if int(ds.get('SamplesPerPixel', 1)) != 1:
-        raise ValueError('Color pixel masking is unsupported; quarantine this study')
     for x, y, width, height in rectangles:
-        if x + width > w or y + height > h:
-            raise ValueError('Pixel mask is outside an image; define masks appropriate for every instance')
         pixels[..., y:y + height, x:x + width] = 0
     ds.file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
     ds.PixelData = pixels.astype(pixels.dtype.newbyteorder('<')).tobytes()
