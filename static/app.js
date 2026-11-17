@@ -576,10 +576,9 @@ function setupWorkflowPanels(){
  $('txt-associate').onclick=safely(async()=>{
   const study=uid,report=txtSelected,generation=reviewRequest;
   if(!report)throw Error('Preview and select one report first');
-  await api('/api/study/'+encodeURIComponent(study)+'/txt-association',{report_id:report,note:$('txt-note').value,confirm:$('txt-confirm').checked});
+  await api('/api/study/'+encodeURIComponent(study)+'/txt-association',{report_id:report,note:$('txt-note').value,confirm:$('txt-confirm').checked,review_revision:selectedStudy?.review_revision});
   if(uid!==study||generation!==reviewRequest)return;
-  $('report-choice').replaceChildren();const option=el('option','Associated TXT report #'+report);option.value=report;$('report-choice').append(option);
-  $('sanitized').value='';highlight();updateLegacyTXTAvailability(1);
+  await openStudy(study,'#review');
   $('legacy-txt-tools').open=true;
   notice('TXT report associated. Continue to Anonymize & review and prepare the draft.');
   location.hash='#review';

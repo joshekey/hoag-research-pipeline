@@ -309,7 +309,8 @@ def create_app(config):
     def txt_association(uid):
         from txt_review import associate
         body = request.get_json(silent=True) or {}
-        return jsonify(associate(config,uid,int(body.get('report_id',0)),body.get('note',''),body.get('confirm'),config['username']))
+        return jsonify(associate(config,uid,int(body.get('report_id',0)),body.get('note',''),body.get('confirm'),config['username'],
+                                 expected_revision=body.get('review_revision')))
 
     @app.get('/api/study/<uid>/sql-candidates')
     def sql_candidates(uid):

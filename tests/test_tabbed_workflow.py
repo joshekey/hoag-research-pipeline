@@ -53,8 +53,8 @@ class TabbedWorkflowTests(unittest.TestCase):
         data=client.get(f'/api/study/{self.uid}/txt-candidates',headers=auth).get_json()
         report=data['rows'][0]['id']
         uri=f'/api/study/{self.uid}/txt-association'
-        self.assertEqual(client.post(uri,json={'report_id':report,'note':'Verified synthetic study','confirm':False},headers=auth).status_code,400)
-        result=client.post(uri,json={'report_id':report,'note':'Verified synthetic study','confirm':True},headers=auth).get_json()
+        self.assertEqual(client.post(uri,json={'review_revision':workflow.revision(self.config,self.uid),'report_id':report,'note':'Verified synthetic study','confirm':False},headers=auth).status_code,400)
+        result=client.post(uri,json={'review_revision':workflow.revision(self.config,self.uid),'report_id':report,'note':'Verified synthetic study','confirm':True},headers=auth).get_json()
         self.assertTrue(result['associated']);self.assertFalse(result['approved'])
         with self.assertRaises(ValueError):engine.export_study(self.config,self.uid)
         engine.prepare(self.config,self.uid,report,nlp=workflow.NoNLP())
@@ -83,9 +83,9 @@ class TabbedWorkflowTests(unittest.TestCase):
         workflow.image(self.sources[0]/'other-study',other_uid,generate_uid())
         engine.scan(self.config)
         with database(self.config) as db:report=db.execute("SELECT id FROM files WHERE kind='report'").fetchone()[0]
-        txt_review.associate(self.config,self.uid,report,'Verified synthetic first examination',True,'synthetic')
+        txt_review.associate(self.config,self.uid,report,'Verified synthetic first examination',True,'synthetic',expected_revision=workflow.revision(self.config,self.uid))
         with self.assertRaisesRegex(ValueError,'another study'):
-            txt_review.associate(self.config,other_uid,report,'Verified synthetic second examination',True,'synthetic')
+            txt_review.associate(self.config,other_uid,report,'Verified synthetic second examination',True,'synthetic',expected_revision=workflow.revision(self.config,other_uid))
 
     def test_changed_report_and_source_identity_are_rejected(self):
         with database(self.config) as db:report=db.execute("SELECT id FROM files WHERE kind='report'").fetchone()[0]

@@ -1,9 +1,10 @@
 """Study-scoped TXT discovery and explicit association. No automatic approval."""
 import json
+import uuid
 from pathlib import Path
 import pydicom
 import engine
-from store import audit, database, idle
+from store import audit, database, idle, require_revision
 from strict_identity_match import normalize_name, normalize_date
 from txt_candidate_discovery import clues, all_patient_names
 
@@ -97,7 +98,7 @@ def preview(config, uid, report_id):
             'message': 'Conflicting report identity/examination; association blocked' if conflicts else 'Unverified candidate: confirm patient and examination before association'}
 
 
-def associate(config, uid, report_id, note, confirmed, actor):
+def associate(config, uid, report_id, note, confirmed, actor, *, expected_revision=None):
     if confirmed is not True or not isinstance(note,str) or not 15 <= len(note.strip()) <= 2000:
         raise ValueError('Confirm patient and examination, and enter a review note of 15–2000 characters')
     previewed = preview(config, uid, report_id)
@@ -106,13 +107,17 @@ def associate(config, uid, report_id, note, confirmed, actor):
     with database(config) as db:
         db.execute('BEGIN IMMEDIATE'); idle(db)
         engine.require_scan(db)
-        fingerprint = db.execute('SELECT fingerprint FROM studies WHERE uid=?',(uid,)).fetchone()[0]
+        study = db.execute('SELECT * FROM studies WHERE uid=?',(uid,)).fetchone()
+        if not study: raise ValueError('Study unavailable')
+        require_revision(config, study, expected_revision)
+        fingerprint = study['fingerprint']
         if db.execute('''SELECT 1 FROM txt_associations a JOIN studies s ON s.uid=a.uid
                          WHERE a.report_id=? AND a.uid<>? AND a.fingerprint=s.fingerprint
                          AND a.report_hash=? LIMIT 1''',(report_id,uid,previewed['sha256'])).fetchone():
             raise ValueError('This report is already associated with another study; investigate the examination relationship')
         db.execute('''INSERT OR REPLACE INTO txt_associations(uid,report_id,fingerprint,report_hash,note)
                       VALUES (?,?,?,?,?)''',(uid,report_id,fingerprint,previewed['sha256'],note.strip()))
-        db.execute("UPDATE studies SET report_id=?,sanitized=NULL,report_hash=NULL,state='needs_review',approved_hash=NULL,approved_fingerprint=NULL WHERE uid=?",(report_id,uid))
+        db.execute('DELETE FROM browser_associations WHERE uid=?', (uid,))
+        db.execute("UPDATE studies SET report_id=?,sanitized=NULL,report_hash=NULL,state='needs_review',approved_hash=NULL,approved_fingerprint=NULL,review_generation=? WHERE uid=?",(report_id,uuid.uuid4().hex,uid))
         audit(db,actor,'associate-txt-report',uid)
     return {'associated':True,'approved':False,'uid':uid,'report_id':report_id}
