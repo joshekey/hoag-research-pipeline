@@ -19,6 +19,24 @@ TAGS = ['StudyInstanceUID', 'SeriesInstanceUID', 'SOPInstanceUID', 'SOPClassUID'
         'StudyDate', 'Modality', 'BurnedInAnnotation', 'PatientBirthDate', 'SeriesDescription', 'BodyPartExamined']
 
 
+def study_conflicts(metas):
+    """Missing dates are unknown; distinct nonempty dates are contradictions."""
+    conflicts = []
+    if len({(m.get('PatientID', ''), m.get('IssuerOfPatientID', ''), m.get('PatientName', '')) for m in metas}) > 1:
+        conflicts.append('patient identity')
+    for field, label in [('AccessionNumber', 'accession'), ('PatientBirthDate', 'date of birth'),
+                         ('StudyDate', 'study date')]:
+        if len({str(m.get(field, '')).strip() for m in metas if str(m.get(field, '')).strip()}) > 1:
+            conflicts.append(label)
+    return conflicts
+
+
+def require_study_consistency(rows):
+    conflicts = study_conflicts([json.loads(row['metadata']) for row in rows])
+    if conflicts:
+        raise ValueError('Conflicting DICOM study identity/examination: ' + ', '.join(conflicts))
+
+
 def family_name(name):
     name = str(name).split('=')[0].strip()
     if '^' in name:
@@ -343,12 +361,11 @@ def match(config, job=None, from_scan=False):
             rows = [dict(r) for r in db.execute("SELECT * FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=?", (uid,))]
             metas = [json.loads(row['metadata']) for row in rows]
             first = metas[0]
-            identities = {(m['PatientID'], m['IssuerOfPatientID'], m['PatientName']) for m in metas}
-            accessions = {m['AccessionNumber'] for m in metas if m['AccessionNumber']}
+            conflicts = study_conflicts(metas)
             patient_key = first['IssuerOfPatientID'] + '\0' + first['PatientID'] if first['PatientID'] else uid
             subject = 'SUBJECT_' + token(config, 'subject', patient_key)[:20]
             fingerprint = digest(json.dumps(sorted((r['id'], r['size'], r['mtime'], r['metadata']) for r in rows)).encode())
-            state = 'conflict' if len(identities) > 1 or len(accessions) > 1 else 'unmatched'
+            state = 'conflict' if conflicts else 'unmatched'
             db.execute('''INSERT INTO studies(uid,subject,accession,patient,name,date,modality,count,size,fingerprint,state)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(uid) DO UPDATE SET
                 subject=excluded.subject,accession=excluded.accession,patient=excluded.patient,
@@ -357,6 +374,8 @@ def match(config, job=None, from_scan=False):
                 report_id=NULL,report_hash=NULL,sanitized=NULL,approved_fingerprint=NULL,approved_hash=NULL''',
                 (uid, subject, first['AccessionNumber'], first['PatientID'], first['PatientName'], first['StudyDate'],
                  ','.join(sorted({m['Modality'] for m in metas})), len(rows), sum(r['size'] for r in rows), fingerprint, state))
+            db.execute('UPDATE studies SET last_error=? WHERE uid=?',
+                       ('Conflicting DICOM study identity/examination: ' + ', '.join(conflicts) if conflicts else '', uid))
             candidates = db.execute("SELECT report,group_concat(DISTINCT reason) reason FROM report_keys WHERE (key=? AND reason='Study UID') OR (key=? AND reason='Accession / filename' AND key<>'') GROUP BY report", (uid, first['AccessionNumber'])).fetchall()
             for candidate in candidates:
                 db.execute('INSERT INTO candidates VALUES (?,?,?)', (uid, candidate['report'], candidate['reason']))
@@ -431,6 +450,7 @@ def prepare(config, uid, report_id, job=None, nlp=None):
         if not study or not report or study['state'] == 'conflict':
             raise ValueError('Study or report unavailable / conflicting study identity')
         instances = db.execute("SELECT * FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=?", (uid,)).fetchall()
+        require_study_consistency(instances)
         identifiers = set()
         for row in instances:
             meta = json.loads(row['metadata'])
@@ -472,6 +492,7 @@ def approve(config, uid, clean, rectangles, note, actor='admin', *, expected_rev
         if not study or study['state'] != 'review':
             raise ValueError('Prepare a report before approving')
         require_revision(config, study, expected_revision)
+        require_study_consistency(db.execute("SELECT metadata FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=?", (uid,)).fetchall())
         approval_hash = digest(json.dumps([clean, rectangles, note, study['report_id'], study['report_hash'], study['source_hashes']], sort_keys=True).encode())
         db.execute("UPDATE studies SET sanitized=?,redactions=?,review_note=?,approved_hash=?,approved_fingerprint=fingerprint,state='approved' WHERE uid=?",
                    (clean, json.dumps(rectangles), note, approval_hash, uid))
@@ -599,6 +620,7 @@ def export_study(config, uid, job=None):
         rows = db.execute("SELECT * FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=? ORDER BY id", (uid,)).fetchall()
     if not report or len(rows) != study['count']:
         raise ValueError('Catalog changed; rescan and review')
+    require_study_consistency(rows)
     current_approval = digest(json.dumps([study['sanitized'], json.loads(study['redactions']), study['review_note'], study['report_id'], study['report_hash'], study['source_hashes']], sort_keys=True).encode())
     if current_approval != study['approved_hash']:
         raise ValueError('Review content changed; approve again')
