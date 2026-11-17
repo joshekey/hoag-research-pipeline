@@ -37,6 +37,20 @@ def keys(info):
     return sorted(set(result))
 
 
+def candidate_page(db, studykeys, after, limit=100):
+    """Bound each lookup by the (key, report) index before merging key hits."""
+    ids=set()
+    for key in set(studykeys):
+        ids.update(row[0] for row in db.execute(
+            'SELECT report FROM match_report_keys WHERE key=? AND report>? ORDER BY report LIMIT ?',
+            (key,after,limit)))
+    ids=sorted(ids)[:limit]
+    if not ids:return []
+    placeholders=','.join('?' for _ in ids)
+    return [dict(row) for row in db.execute(
+        'SELECT * FROM match_reports WHERE id IN ('+placeholders+') ORDER BY id',ids)]
+
+
 def rank(study, info, dob='', anatomy=()):
     info=dict(info);info['modalities']=set(info['modalities']);info['anatomy']=set(info['anatomy'])
     result=evaluate(study,info,study_dob=dob,study_anatomy=anatomy)
@@ -113,16 +127,13 @@ def build(config, job=None):
                 meta=json.loads(first[0]) if first else {}
                 studykeys=['N:'+normalize_name(study['name']),'A:'+clean_id(study['accession']),'P:'+clean_id(study['patient']),'U:'+study['uid']]
                 studykeys+=['W:'+word for word in normalize_name(family_name(study['name'])).split()]
-                placeholders=','.join('?' for _ in studykeys)
             anatomy=regions(meta.get('BodyPartExamined','')+' '+meta.get('SeriesDescription',''))
             ranked=[]
             after_report=0
             while True:
                 checkpoint(config,job)
                 with database(config) as db:
-                    candidates=[dict(r) for r in db.execute(
-                        "SELECT * FROM match_reports WHERE id IN (SELECT report FROM match_report_keys WHERE key IN ("
-                        +placeholders+") AND report>?) ORDER BY id LIMIT 100", [*studykeys,after_report])]
+                    candidates=candidate_page(db,studykeys,after_report)
                 if not candidates:break
                 for report in candidates:
                     info=json.loads(report['evidence']); result=rank(study,info,meta.get('PatientBirthDate',''),anatomy)
