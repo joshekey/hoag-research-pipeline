@@ -33,6 +33,9 @@ configuration in the asset folder cannot silently send requests to pilot paths.
 SharedArrayBuffer is disabled for this non-isolated iframe deployment, and
 request/decoder concurrency is bounded. All DICOM and static routes retain login.
 Browser responses remain `no-store`; no persistent DICOM cache is introduced.
+Each viewer instance uses an exam-scoped DICOMweb root. Discovery returns only
+that exam, and requests for another exam under that root are rejected. OHIF cannot
+silently switch to a different patient while the workspace banner stays unchanged.
 
 The viewer displays a reason when unavailable instead of disappearing. Check
 the scan, source access, active jobs, identity conflicts, assets and existing
@@ -50,7 +53,8 @@ header once. Individual requests still recheck authorization and source state.
 Native multi-frame images and JPEG/JPEG-LS/JPEG2000/RLE encapsulated frames are
 served without altering source samples. Bit-packed frames and other unsupported
 syntaxes still return an explicit error; browser rendering depends on supported
-SOP classes and decoder capabilities. This is not a general-purpose PACS.
+SOP classes and decoder capabilities. The existing 128 MiB per-instance retrieval
+limit remains. This is not a general-purpose PACS.
 
 ## Regression checks
 

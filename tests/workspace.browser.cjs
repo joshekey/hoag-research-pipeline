@@ -51,6 +51,7 @@ test('official OHIF bundle retrieves and renders synthetic DICOM pixels',async({
  await page.locator('#ohif-toggle').click();
  await expect.poll(()=>frames.length,{timeout:60000}).toBeGreaterThan(previousFrames);
  await expect.poll(async()=>viewer.locator('canvas').evaluateAll(canvases=>canvases.some(c=>{if(!c.width||!c.height)return false;const copy=document.createElement('canvas');copy.width=c.width;copy.height=c.height;const ctx=copy.getContext('2d');ctx.drawImage(c,0,0);const data=ctx.getImageData(0,0,c.width,c.height).data;let low=255,high=0;for(let i=0;i<data.length;i+=4){low=Math.min(low,data[i]);high=Math.max(high,data[i]);}return high-low>30;})),{timeout:60000}).toBe(true);
+ expect(frames.every(url=>/\/scope\/([0-9.]+)\/studies\/\1\//.test(url))).toBe(true);
  expect(failed).toEqual([]);expect(errors).toEqual([]);
 });
 

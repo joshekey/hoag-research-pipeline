@@ -3,6 +3,8 @@
  * clinical gateway approval and single-study allowlist setup.
  * No external imaging endpoints or token prompts.
  */
+const selectedExamUID = new URLSearchParams(window.location.search).get('StudyInstanceUIDs') || 'invalid';
+const selectedExamRoot = '/ohif/dicomweb/scope/' + encodeURIComponent(selectedExamUID);
 window.config = {
   routerBasename: '/',
   extensions: [],
@@ -20,9 +22,9 @@ window.config = {
       configuration: {
         friendlyName: 'Hoag Research Images',
         name: 'HOAG-RESTRICTED',
-        qidoRoot: '/ohif/dicomweb',
-        wadoRoot: '/ohif/dicomweb',
-        wadoUriRoot: '/ohif/dicomweb',
+        qidoRoot: selectedExamRoot,
+        wadoRoot: selectedExamRoot,
+        wadoUriRoot: selectedExamRoot,
         qidoSupportsIncludeField: false,
         supportsReject: false,
         supportsStow: false,

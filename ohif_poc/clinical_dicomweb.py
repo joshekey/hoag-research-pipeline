@@ -15,7 +15,7 @@ from contextlib import closing
 from pathlib import Path
 
 import pydicom
-from flask import Blueprint, Response, abort, request
+from flask import Blueprint, Response, abort, request, g, has_request_context
 from pydicom.uid import (ExplicitVRLittleEndian, ImplicitVRLittleEndian,
                          JPEGLossless, JPEGLosslessSV1, JPEG2000Lossless,
                          JPEGBaseline8Bit, JPEGExtended12Bit, JPEG2000,
@@ -100,6 +100,8 @@ def dicom_json(data):
 
 @request_cached
 def get_index(config, study):
+    if has_request_context() and g.get('ohif_viewer_scope') not in (None, study):
+        abort(404)
     if study in allowed_studies(config, study):
         return scoped_catalog(config, study, study)
     return historical_index(config, study)
@@ -143,7 +145,8 @@ def metadata_for(config, uid, series, sop):
     meta["7FE00010"] = {
         "vr": "OW",
         "BulkDataURI": (
-            ROOT + "/studies/" + uid + "/series/" + series
+            (ROOT + '/scope/' + g.ohif_viewer_scope if has_request_context() and g.get('ohif_viewer_scope') else ROOT)
+            + "/studies/" + uid + "/series/" + series
             + "/instances/" + sop + "/frames/1"
         ),
     }
@@ -183,10 +186,24 @@ def create_blueprint(config):
     """Register only inside webapp.create_app so Basic auth covers all routes."""
     bp = Blueprint("ohif_pilot", __name__)
 
+    @bp.url_value_preprocessor
+    def bind_viewer_scope(endpoint, values):
+        scope = values.pop('scope', None) if values else None
+        if scope is not None:
+            if not UID_RE.fullmatch(scope) or (values.get('uid') and values['uid'] != scope):
+                abort(404)
+            g.ohif_viewer_scope = scope
+
     @bp.get(ROOT + "/studies")
+    @bp.get(ROOT + "/scope/<scope>/studies")
     def studies():
         result = []
         selected = request.args.get("StudyInstanceUID", "").strip()
+        scope = g.get('ohif_viewer_scope')
+        if scope:
+            if selected and selected != scope:
+                abort(404)
+            selected = scope
         if selected:
             viewer_authorized_uid(config, selected)
             uids = [selected]
@@ -201,6 +218,7 @@ def create_blueprint(config):
         return dicom_json(result)
 
     @bp.get(ROOT + "/studies/<uid>/series")
+    @bp.get(ROOT + "/scope/<scope>/studies/<uid>/series")
     def series(uid):
         indexed = get_index(config, uid)
         counts = Counter(s for s, _ in indexed)
@@ -222,12 +240,15 @@ def create_blueprint(config):
         return dicom_json(result)
 
     @bp.get(ROOT + "/studies/<uid>/metadata")
+    @bp.get(ROOT + "/scope/<scope>/studies/<uid>/metadata")
     def study_metadata(uid):
         indexed = get_index(config, uid)
         return dicom_json([metadata_for(config, uid, s, sop) for s, sop in indexed])
 
     @bp.get(ROOT + "/studies/<uid>/series/<series>/instances")
     @bp.get(ROOT + "/studies/<uid>/series/<series>/metadata")
+    @bp.get(ROOT + "/scope/<scope>/studies/<uid>/series/<series>/instances")
+    @bp.get(ROOT + "/scope/<scope>/studies/<uid>/series/<series>/metadata")
     def series_metadata(uid, series):
         indexed = get_index(config, uid)
         selected = [(s, sop) for s, sop in indexed if s == series]
@@ -236,16 +257,19 @@ def create_blueprint(config):
         return dicom_json([metadata_for(config, uid, s, sop) for s, sop in selected])
 
     @bp.get(ROOT + "/studies/<uid>/series/<series>/instances/<sop>/metadata")
+    @bp.get(ROOT + "/scope/<scope>/studies/<uid>/series/<series>/instances/<sop>/metadata")
     def instance_metadata(uid, series, sop):
         return dicom_json([metadata_for(config, uid, series, sop)])
 
     @bp.get(ROOT + "/studies/<uid>/series/<series>/instances/<sop>")
+    @bp.get(ROOT + "/scope/<scope>/studies/<uid>/series/<series>/instances/<sop>")
     def instance(uid, series, sop):
         checked_record(config, uid, series, sop)
         raw = historical_bytes(config, uid, series, sop) if is_historical(config,uid) else instance_bytes(config, uid, uid, series, sop, max_bytes=MAX_INSTANCE_BYTES)
         return multipart(raw, "application/dicom", "instance")
 
     @bp.get(ROOT + "/studies/<uid>/series/<series>/instances/<sop>/frames/<int:frame>")
+    @bp.get(ROOT + "/scope/<scope>/studies/<uid>/series/<series>/instances/<sop>/frames/<int:frame>")
     def frame(uid, series, sop, frame):
         checked_record(config, uid, series, sop)
         raw = historical_bytes(config, uid, series, sop) if is_historical(config,uid) else instance_bytes(config, uid, uid, series, sop, max_bytes=MAX_INSTANCE_BYTES)

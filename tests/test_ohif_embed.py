@@ -16,8 +16,9 @@ class OHIFEmbedTests(unittest.TestCase):
 
     def test_clinical_config_no_public_endpoints(self):
         script=(ROOT/"ohif_poc/clinical_app_config_392.js").read_text()
-        self.assertIn("qidoRoot: '/ohif/dicomweb'",script)
-        self.assertIn("wadoRoot: '/ohif/dicomweb'",script)
+        self.assertIn("qidoRoot: selectedExamRoot",script)
+        self.assertIn("wadoRoot: selectedExamRoot",script)
+        self.assertIn("'/ohif/dicomweb/scope/'",script)
         self.assertIn("supportsStow: false",script)
         self.assertNotIn("cloudfront.net",script)
         self.assertNotIn("http://",script)

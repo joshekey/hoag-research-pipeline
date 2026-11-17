@@ -49,7 +49,7 @@ class WorkspaceViewerTests(unittest.TestCase):
         response = self.get('/app-config.js')
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"useSharedArrayBuffer: 'FALSE'", response.data)
-        self.assertIn(b"qidoRoot: '/ohif/dicomweb'", response.data)
+        self.assertIn(b"qidoRoot: selectedExamRoot", response.data)
         self.assertEqual(response.headers['Cache-Control'], 'no-store')
 
     def test_missing_viewer_assets_and_closed_gate_have_visible_reasons(self):
@@ -119,6 +119,21 @@ class WorkspaceViewerTests(unittest.TestCase):
         self.assertEqual(study['00100020']['Value'], ['SYNTHETIC123'])
         self.assertEqual(study['00080050']['Value'], ['ACC_TEST_123'])
         self.assertEqual(study['00080020']['Value'], ['20200102'])
+
+    def test_scoped_viewer_cannot_discover_or_load_a_different_exam(self):
+        from pydicom.uid import generate_uid
+        other = generate_uid()
+        workflow.image(self.sources[0] / 'other.dcm', other, generate_uid())
+        engine.scan(self.config)
+        root = '/ohif/dicomweb/scope/' + self.uid
+        response = self.get(root + '/studies')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([r['0020000D']['Value'][0] for r in response.json], [self.uid])
+        self.assertEqual(self.get(root + '/studies?StudyInstanceUID=' + other).status_code, 404)
+        self.assertEqual(self.get(root + '/studies/' + other + '/metadata').status_code, 404)
+        metadata = self.get(root + '/studies/' + self.uid + '/metadata')
+        self.assertEqual(metadata.status_code, 200)
+        self.assertTrue(metadata.json[0]['7FE00010']['BulkDataURI'].startswith(root + '/'))
 
     def test_installer_copies_every_dashboard_asset_and_viewer_config(self):
         source = (Path(__file__).parents[1] / 'install.sh').read_text()
