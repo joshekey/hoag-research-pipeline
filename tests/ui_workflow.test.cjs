@@ -35,6 +35,7 @@ function fixture(prefs={}){
   const match=route.pathname.match(/^\/api\/study\/([0-9.]+)(.*)$/);
   if(match){const uid=match[1],action=match[2];
    if(!action)return response(detail(uid));
+   if(action==='/review-draft'){const body=JSON.parse(options.body);assert.equal(body.review_revision,studies[uid].review_revision);studies[uid].sanitized=body.text;studies[uid].redactions=JSON.stringify(body.rectangles);studies[uid].review_note=body.note;studies[uid].review_revision+='-saved';return response({saved:true,approved:false,review_revision:studies[uid].review_revision});}
    if(action==='/reopen-review'){studies[uid].state='review';studies[uid].review_revision+='-reopened';return response({ok:true});}
    if(action==='/approve'){const body=JSON.parse(options.body);assert.equal(body.review_revision,studies[uid].review_revision);studies[uid].state='approved';studies[uid].sanitized=body.text;studies[uid].redactions=JSON.stringify(body.rectangles);studies[uid].review_note=body.note;studies[uid].review_revision+='-approved';return response({ok:true});}
    if(action==='/suggestions')return response(prefs.suggestions?{ready:true,txt_status:'2 of 2 TXT reports searchable',sql_status:'searched',rows:[{source:'sql',ref:'sql-a',path:'Synthetic SQL report',hash:'synthetic-hash',identity:{name:studies[uid].name,dob:'19700101',exam_date:'20200102'},bucket:'strong',matches:['Full patient name','Date of birth','Examination date'],differences:[],missing:[]}]}:{ready:false,rows:[],sql_status:'not checked'});
@@ -191,5 +192,39 @@ test('slow exam details cannot override a tab chosen while loading',async()=>{
   assert.equal(f.w.location.hash,'#studies');
   assert.equal(f.$('matching').hidden,true);
   assert.match(f.$('current-study-banner').textContent,/EXAM_A/);
+ }finally{f.dom.window.close();}
+});
+
+
+test('saving a review draft persists masks without approving and survives reopening',async()=>{
+ const f=fixture({studies:{'1.2.3':{state:'review',sanitized:'Synthetic draft'}}});try{
+  await settle();await f.open('1.2.3');await settle();
+  f.$('masks').value='[[1,1,2,2]]';f.$('masks').dispatchEvent(new f.w.Event('input'));
+  assert.equal(f.$('save-review-draft').disabled,false);
+  f.$('save-mask-draft').click();await settle();
+  assert.match(f.$('notice').textContent,/Draft saved/);assert.equal(f.$('export-selected-study').disabled,true);
+  assert.equal(f.studies['1.2.3'].state,'review');assert.equal(f.$('save-review-draft').disabled,true);
+  await f.open('1.2.3');await settle();assert.equal(f.$('masks').value,'[[1,1,2,2]]');
+ }finally{f.dom.window.close();}
+});
+
+test('a late draft save cannot overwrite the newly selected exam',async()=>{
+ const f=fixture({studies:{'1.2.3':{state:'review',sanitized:'Synthetic draft'}}});try{
+  await settle();await f.open('1.2.3');await settle();f.w.confirm=()=>true;
+  f.$('sanitized').value='Edited A';f.$('sanitized').dispatchEvent(new f.w.Event('input'));
+  const release=f.hold('/api/study/1.2.3/review-draft');f.$('save-review-draft').click();await pause();
+  await f.open('1.2.4');await settle();release();await settle();
+  assert.match(f.$('current-study-banner').textContent,/EXAM_B/);assert.equal(f.$('sanitized').value,'');
+  assert.equal(f.$('masks').value,'[]');assert.equal(f.$('save-review-draft').disabled,true);
+ }finally{f.dom.window.close();}
+});
+
+test('a new report search removes old clickable results while loading',async()=>{
+ const f=fixture();try{
+  await settle();await f.open('1.2.3');await settle();
+  assert.equal(f.$('browser-rows').children.length,1);
+  const release=f.hold('/api/report-browser/search');f.$('browser-search').click();await pause();
+  assert.equal(f.$('browser-rows').children.length,0);assert.equal(f.$('browser-text').value,'');
+  release();await settle();assert.equal(f.$('browser-rows').children.length,1);
  }finally{f.dom.window.close();}
 });

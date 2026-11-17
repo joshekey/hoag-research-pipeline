@@ -7,10 +7,10 @@ accession, modality, date, and workflow status. Selection is restored within
 the same browser tab after refresh; report text and review edits are not stored
 in browser storage. Unsaved edits require confirmation before leaving the exam.
 
-1. **Match report**: inspect images and compare report evidence side by side.
+1. **Match report**: browse a scrolling report list beside a larger reader. Use Previous/Next report to compare records; expand ranked suggestions or image comparison when needed.
    Previewing a report does not associate it. Explicitly confirm the relationship.
 2. **Review**: prepare the associated report, inspect the original and sanitized
-   text and every image/frame, apply masks, and approve. Reopen an approved review
+   text and every image/frame, apply masks, save a draft as needed, and approve. Reopen an approved review
    before corrections. Existing revision and source-integrity checks remain.
 3. **Export**: confirm the selected exam and destination, then export the approved
    package. Queue and patient search remain available. Approved/exported exams
@@ -79,3 +79,30 @@ After deployment, test a representative hospital study in Images, including
 switching series and frames, then matching/review/export on an approved test case.
 Synthetic tests cannot establish network-share latency or compatibility with
 every production acquisition format. Do not rerun indexing just to test the UI.
+
+
+## Drawing and saving masks (1.5.1)
+
+1. Associate the correct report in **Match report**.
+2. Open **Review** and choose **Prepare associated report**. The message beside
+   the image explains when editing is unavailable. Preparation must finish first.
+3. Wait for the source image to load, enable **Draw pixel mask**, and drag a
+   rectangle over identifying text. An orange outline follows the drag; release
+   to add the mask. **Undo last mask** removes the latest rectangle. Coordinates
+   are original image pixels even when zoomed. Changing images cancels an
+   unfinished drag, and drawing is disabled while the next image loads.
+4. **Save draft** beside the image or below the review saves report edits,
+   masks, and notes on the server. It does not approve or export. Reloading the
+   exam restores saved work; review confirmations must be made again.
+5. Review every necessary image/frame and the sanitized report, complete the
+   confirmations and review note, then approve. Approval checks that masks fit
+   every instance; unsupported color masks are rejected. Export remains separate.
+
+Masks currently apply to **every instance and frame in the exam**. The shaded
+preview shows the region to remove; export replaces its stored samples with
+zero (display appearance depends on DICOM interpretation/window settings).
+This is not per-series or per-frame masking. If a suitable common rectangle
+cannot cover identifiers without obscuring required image content, use specialist
+processing. OHIF annotations do not create export masks; use Source image review.
+Re-preparing a draft replaces saved and unsaved text/masks and asks for confirmation.
+No patient report or image content is saved in browser storage.
