@@ -1,6 +1,7 @@
 """Authenticated internal workflow UI; no third-party scripts or data services."""
 import io
 import json
+import re
 import secrets
 import stat
 import shutil
@@ -167,10 +168,17 @@ def create_app(config):
 
     @app.get('/api/studies')
     def studies():
-        q = '%' + request.args.get('q', '')[:200] + '%'
+        query_text = request.args.get('q', '')[:200].strip()
+        q = '%' + query_text + '%'
         offset = max(0, int(request.args.get('offset', 0)))
         clauses = ['(accession LIKE ? OR patient LIKE ? OR name LIKE ? OR subject LIKE ?)']
         params = [q] * 4
+        # DICOM names use ^ separators; people search with spaces, commas,
+        # or first/last order. This is discovery only, never identity matching.
+        name_parts = [part for part in re.split(r'[\s^,]+', query_text) if part]
+        if len(name_parts) > 1:
+            clauses[0] = clauses[0][:-1] + ' OR (' + ' AND '.join('name LIKE ?' for _ in name_parts) + '))'
+            params.extend('%' + part + '%' for part in name_parts)
         if request.args.get('workflow') == 'review':
             clauses.append("state NOT IN ('approved','exported') AND count > 0")
         for key, column in [('state', 'state'), ('modality', 'modality')]:

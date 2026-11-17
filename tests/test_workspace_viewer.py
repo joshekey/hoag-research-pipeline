@@ -44,6 +44,14 @@ class WorkspaceViewerTests(unittest.TestCase):
                 self.assertEqual(self.get('/api/studies?paged=1&workflow=review').json['total'], count)
                 self.assertEqual(self.get('/api/studies?paged=1&q=SYNTHETIC123').json['total'], 1)
 
+    def test_patient_search_accepts_displayed_names_and_first_last_order(self):
+        for query in ('Synthetic Person', 'Person Synthetic', 'Synthetic, Person', 'Synthetic^Person'):
+            with self.subTest(query=query):
+                response = self.client.get('/api/studies', query_string={'paged': '1', 'q': query}, headers=self.auth)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json['total'], 1)
+        self.assertEqual(self.get('/api/studies?paged=1&q=Unrelated+Person').json['total'], 0)
+
     def test_configuration_is_authenticated_same_origin_and_iframe_compatible(self):
         self.assertEqual(self.client.get('/app-config.js').status_code, 401)
         response = self.get('/app-config.js')
