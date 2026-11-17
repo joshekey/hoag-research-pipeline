@@ -48,7 +48,7 @@ class ReviewIntegrityTests(unittest.TestCase):
         self.prepare()
         previous = workflow.revision(self.config, self.uid)
         self.prepare()
-        for revision in (None, previous):
+        for revision in (None, previous, '\u00e9'*64):
             with self.subTest(revision=revision), self.assertRaisesRegex(ValueError, 'Review changed'):
                 self.approve(expected_revision=revision)
 

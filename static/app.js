@@ -424,6 +424,8 @@ function updateReviewControls(){
  const editable=reviewEditable(),locked=['approved','exported'].includes(selectedStudy?.state);
  for(const id of ['sanitized','masks','review-note'])$(id).readOnly=!editable;
  for(const id of ['draw-mask','undo-mask','images-reviewed','report-reviewed'])$(id).disabled=!editable;
+ for(const id of ['report-choice','find-report'])$(id).disabled=locked||reviewSaving||active();
+ $('prepare').disabled=locked||reviewSaving||active()||!$('report-choice').value;
  $('approve').disabled=!editable;
  $('reopen-review').hidden=!locked;
  $('reopen-review').disabled=reviewSaving||active();

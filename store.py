@@ -123,7 +123,8 @@ def review_revision(config, study):
 
 
 def require_revision(config, study, expected):
-    if not isinstance(expected, str) or not hmac.compare_digest(review_revision(config, study), expected):
+    if (not isinstance(expected, str) or len(expected) != 64 or not expected.isascii()
+            or not hmac.compare_digest(review_revision(config, study), expected)):
         raise ValueError('Review changed; reload the study and review the current report and images')
 
 
