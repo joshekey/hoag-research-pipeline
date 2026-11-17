@@ -49,6 +49,17 @@ Association moves the study out of the unassociated queue and clears prior appro
 Prepare, check the original and sanitized report and all relevant image frames,
 approve, then export to the selected output share.
 
+Approved and exported reviews are read-only. To correct text, masks, or the review
+note, choose **Reopen review to make corrections**. This preserves the existing
+work and revokes approval for future exports. Make the corrections, review again,
+and approve. Previously completed packages are unchanged. Export stays disabled
+while the review is open or has unsaved edits.
+
+Approval and association requests are tied to the exact study/review revision
+loaded in the browser. If another tab, reviewer, scan, or preparation changes it,
+reload and review the current content before submitting again. Old browser tabs
+without a revision are rejected; refresh the application after upgrading.
+
 ## Feedback and recovery
 
 The persistent operation banner displays the active job, phase, processed count and
@@ -64,6 +75,18 @@ requests clear on study switching. Association verifies the preview hash again;
 preparation/export validate the original report sources. Independent search remains
 available when suggestions are unavailable. Imported SQL still requires the supported
 `labdataex`, `labdata`, `enc`, and `items` layout; unsupported dumps fail visibly.
+
+Rescanning preserves the selected manual TXT/SQL association only when the study
+fingerprint and report content remain unchanged and the source is available. SQL
+references are checked with the broker. Changed, missing, conflicting, or
+unverifiable relationships are removed from both the selection and its authorization
+record. Rescanning still clears prepared drafts and approvals; prepare and review
+again. Conflicting nonempty dates of birth or study dates within one DICOM study
+block preparation, approval, and export; a missing date remains unknown.
+
+Matching scores every candidate returned by its indexed lookup keys in cancellable
+pages, retaining the best ten. It no longer stops after the first 1,000 candidates.
+This does not change the requirement for manual relationship verification.
 
 ## Administrator setup
 

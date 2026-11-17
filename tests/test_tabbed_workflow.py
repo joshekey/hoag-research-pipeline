@@ -53,14 +53,14 @@ class TabbedWorkflowTests(unittest.TestCase):
         data=client.get(f'/api/study/{self.uid}/txt-candidates',headers=auth).get_json()
         report=data['rows'][0]['id']
         uri=f'/api/study/{self.uid}/txt-association'
-        self.assertEqual(client.post(uri,json={'report_id':report,'note':'Verified synthetic study','confirm':False},headers=auth).status_code,400)
-        result=client.post(uri,json={'report_id':report,'note':'Verified synthetic study','confirm':True},headers=auth).get_json()
+        self.assertEqual(client.post(uri,json={'review_revision':workflow.revision(self.config,self.uid),'report_id':report,'note':'Verified synthetic study','confirm':False},headers=auth).status_code,400)
+        result=client.post(uri,json={'review_revision':workflow.revision(self.config,self.uid),'report_id':report,'note':'Verified synthetic study','confirm':True},headers=auth).get_json()
         self.assertTrue(result['associated']);self.assertFalse(result['approved'])
         with self.assertRaises(ValueError):engine.export_study(self.config,self.uid)
         engine.prepare(self.config,self.uid,report,nlp=workflow.NoNLP())
         with self.assertRaises(ValueError):engine.export_study(self.config,self.uid)
         with database(self.config) as db:study=dict(db.execute('SELECT * FROM studies WHERE uid=?',(self.uid,)).fetchone())
-        engine.approve(self.config,self.uid,study['sanitized'],[],'Synthetic image and report review')
+        engine.approve(self.config,self.uid,study['sanitized'],[],'Synthetic image and report review', expected_revision=workflow.revision(self.config,self.uid))
         folder=engine.export_study(self.config,self.uid)
         self.assertTrue((folder/'Report/report.txt').is_file());self.assertEqual(len(list((folder/'DICOM').glob('*.dcm'))),1)
 
@@ -83,9 +83,9 @@ class TabbedWorkflowTests(unittest.TestCase):
         workflow.image(self.sources[0]/'other-study',other_uid,generate_uid())
         engine.scan(self.config)
         with database(self.config) as db:report=db.execute("SELECT id FROM files WHERE kind='report'").fetchone()[0]
-        txt_review.associate(self.config,self.uid,report,'Verified synthetic first examination',True,'synthetic')
+        txt_review.associate(self.config,self.uid,report,'Verified synthetic first examination',True,'synthetic',expected_revision=workflow.revision(self.config,self.uid))
         with self.assertRaisesRegex(ValueError,'another study'):
-            txt_review.associate(self.config,other_uid,report,'Verified synthetic second examination',True,'synthetic')
+            txt_review.associate(self.config,other_uid,report,'Verified synthetic second examination',True,'synthetic',expected_revision=workflow.revision(self.config,other_uid))
 
     def test_changed_report_and_source_identity_are_rejected(self):
         with database(self.config) as db:report=db.execute("SELECT id FROM files WHERE kind='report'").fetchone()[0]
@@ -106,7 +106,7 @@ class TabbedWorkflowTests(unittest.TestCase):
         with database(self.config) as db:report=db.execute("SELECT id FROM files WHERE kind='report'").fetchone()[0]
         engine.prepare(self.config,self.uid,report,nlp=workflow.NoNLP())
         with database(self.config) as db:study=dict(db.execute('SELECT * FROM studies WHERE uid=?',(self.uid,)).fetchone())
-        engine.approve(self.config,self.uid,study['sanitized'],[],'Synthetic complete privacy review')
+        engine.approve(self.config,self.uid,study['sanitized'],[],'Synthetic complete privacy review', expected_revision=workflow.revision(self.config,self.uid))
         base=self.root/'mount-settings';base.mkdir();fstab=base/'fstab';fstab.write_text('')
         targets=dict(zip(['bulk','imaging','output'],[*self.config['source_roots'],self.config['output_root']]))
         account=types.SimpleNamespace(pw_uid=1001,pw_gid=1001)

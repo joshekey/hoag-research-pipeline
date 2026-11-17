@@ -89,7 +89,8 @@ def initialize(config):
           manifest_hash TEXT NOT NULL, created REAL NOT NULL);
         ''')
         columns = {r['name'] for r in db.execute('PRAGMA table_info(studies)')}
-        for name, declaration in [('source_hashes', "TEXT NOT NULL DEFAULT '{}'"), ('last_error', "TEXT NOT NULL DEFAULT ''")]:
+        for name, declaration in [('source_hashes', "TEXT NOT NULL DEFAULT '{}'"), ('last_error', "TEXT NOT NULL DEFAULT ''"),
+                                  ('review_generation', "TEXT NOT NULL DEFAULT ''")]:
             if name not in columns:
                 db.execute(f'ALTER TABLE studies ADD COLUMN {name} {declaration}')
         columns = {r['name'] for r in db.execute('PRAGMA table_info(jobs)')}
@@ -111,6 +112,20 @@ def token(config, namespace, value):
 
 def research_uid(config, value):
     return '2.25.' + str(int(token(config, 'uid', value)[:32], 16))
+
+
+def review_revision(config, study):
+    """Bind a client review to the exact catalog, source and draft it read."""
+    fields = ('uid', 'review_generation', 'fingerprint', 'report_id', 'report_hash',
+              'source_hashes', 'sanitized', 'redactions', 'review_note', 'state',
+              'approved_hash', 'approved_fingerprint')
+    return token(config, 'review-revision', json.dumps([study[k] for k in fields]))
+
+
+def require_revision(config, study, expected):
+    if (not isinstance(expected, str) or len(expected) != 64 or not expected.isascii()
+            or not hmac.compare_digest(review_revision(config, study), expected)):
+        raise ValueError('Review changed; reload the study and review the current report and images')
 
 
 def audit(db, actor, action, target=''):

@@ -20,7 +20,7 @@ import sql_association
 import sql_prepare_review
 from report_format import format_report
 from ohif_poc.clinical_dicomweb import create_blueprint as ohif_blueprint, viewer_authorized_uid, authorized_uid
-from store import audit, database, enqueue, initialize, token
+from store import audit, database, enqueue, initialize, token, review_revision
 
 
 SQL_REVIEW_GATE = Path("/etc/hoag-research/sql-candidate-review.enabled")
@@ -309,7 +309,8 @@ def create_app(config):
     def txt_association(uid):
         from txt_review import associate
         body = request.get_json(silent=True) or {}
-        return jsonify(associate(config,uid,int(body.get('report_id',0)),body.get('note',''),body.get('confirm'),config['username']))
+        return jsonify(associate(config,uid,int(body.get('report_id',0)),body.get('note',''),body.get('confirm'),config['username'],
+                                 expected_revision=body.get('review_revision')))
 
     @app.get('/api/study/<uid>/sql-candidates')
     def sql_candidates(uid):
@@ -384,7 +385,7 @@ def create_app(config):
             text=''
             study=dict(study)
             study['last_error']='Associated report unavailable or changed. Browse reports and associate a current record before preparation.'
-        return jsonify(study=dict(study), candidates=candidates, images=images, original_report=text)
+        return jsonify(study=dict(study, review_revision=review_revision(config, study)), candidates=candidates, images=images, original_report=text)
 
     @app.post('/api/jobs')
     def jobs():
@@ -396,7 +397,14 @@ def create_app(config):
         body = request.get_json()
         if body.get('images_reviewed') is not True or body.get('report_reviewed') is not True:
             raise ValueError('Confirm review of all images/frames and the sanitized report')
-        engine.approve(config, uid, body['text'], body.get('rectangles', []), body.get('note', ''), config['username'])
+        engine.approve(config, uid, body['text'], body.get('rectangles', []), body.get('note', ''), config['username'],
+                       expected_revision=body.get('review_revision'))
+        return jsonify(ok=True)
+
+    @app.post('/api/study/<uid>/reopen-review')
+    def reopen_review(uid):
+        body = request.get_json(silent=True) or {}
+        engine.reopen_review(config, uid, body.get('review_revision'), config['username'])
         return jsonify(ok=True)
 
     @app.get('/api/image/<int:file_id>')

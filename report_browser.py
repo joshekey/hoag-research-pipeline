@@ -1,8 +1,9 @@
 """Authenticated, source-independent discovery and deliberate manual association."""
 import json
 import time
+import uuid
 import engine
-from store import database, idle, audit, token
+from store import database, idle, audit, token, require_revision
 from sql_gui_candidates import request_broker
 from research_matching import evidence
 
@@ -55,6 +56,7 @@ def associate(config, uid, body, actor):
         db.execute('BEGIN IMMEDIATE');idle(db);engine.require_scan(db)
         study=db.execute('SELECT * FROM studies WHERE uid=?',(uid,)).fetchone()
         if not study: raise ValueError('Study unavailable')
+        require_revision(config, study, body.get('review_revision'))
         if source=='sql':
             path='sql-report:'+ref
             metadata=json.dumps({'hash':result['hash'],'sql_ref':ref})
@@ -62,12 +64,13 @@ def associate(config, uid, body, actor):
             report_id=db.execute('SELECT id FROM files WHERE path=?',(path,)).fetchone()[0]
         else: report_id=int(ref)
         db.execute('INSERT OR REPLACE INTO browser_associations VALUES (?,?,?,?,?,?,?)',(uid,report_id,study['fingerprint'],result['hash'],actor,time.time(),note))
-        db.execute("UPDATE studies SET report_id=?,report_hash=NULL,sanitized=NULL,approved_hash=NULL,approved_fingerprint=NULL,state=CASE WHEN state='conflict' THEN state ELSE 'needs_review' END WHERE uid=?",(report_id,uid))
+        db.execute('DELETE FROM txt_associations WHERE uid=?', (uid,))
+        db.execute("UPDATE studies SET report_id=?,report_hash=NULL,sanitized=NULL,approved_hash=NULL,approved_fingerprint=NULL,review_generation=?,state=CASE WHEN state='conflict' THEN state ELSE 'needs_review' END WHERE uid=?",(report_id,uuid.uuid4().hex,uid))
         audit(db,actor,'manual-report-association',token(config,'study',uid)[:20])
     return {'associated':True,'approved':False,'report_id':report_id}
 
 
 def authorized(config, uid, report_id):
     with database(config) as db:
-        row=db.execute('SELECT a.report_hash,f.metadata FROM browser_associations a JOIN studies s ON s.uid=a.uid JOIN files f ON f.id=a.report_id WHERE a.uid=? AND a.report_id=? AND a.fingerprint=s.fingerprint AND f.active=1',(uid,report_id)).fetchone()
+        row=db.execute("SELECT a.report_hash,f.metadata FROM browser_associations a JOIN studies s ON s.uid=a.uid JOIN files f ON f.id=a.report_id WHERE a.uid=? AND a.report_id=? AND s.report_id=a.report_id AND a.fingerprint=s.fingerprint AND s.state<>'conflict' AND f.active=1 AND f.status='ok'",(uid,report_id)).fetchone()
     return bool(row and row['report_hash']==json.loads(row['metadata']).get('hash'))

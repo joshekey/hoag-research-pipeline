@@ -27,7 +27,7 @@ class BrowserTests(unittest.TestCase):
         item=result.get_json()['groups'][0]['rows'][0]
         preview=client.post('/api/report-browser/preview',json=item,headers=auth).get_json()
         self.assertIn('synthetic narrative',preview['text'])
-        body=dict(preview,confirm=True,note='Synthetic reviewer verified this deliberate relationship')
+        body=dict(preview,review_revision=workflow.revision(self.config,self.uid),confirm=True,note='Synthetic reviewer verified this deliberate relationship')
         response=client.post(f'/api/study/{self.uid}/report-association',json=body,headers=auth)
         self.assertEqual(response.status_code,200)
         engine.prepare(self.config,self.uid,response.get_json()['report_id'],nlp=workflow.NoNLP())
@@ -37,10 +37,10 @@ class BrowserTests(unittest.TestCase):
         sql={'source':'sql','ref':'synthetic-ref','text':'Patient Name: Synthetic, Person\nFindings: Synthetic SQL report','hash':'' ,'identity':{'name':'Synthetic Person'}}
         sql['hash']=engine.digest(sql['text'].encode())
         with patch('report_browser.request_broker',return_value=sql):
-            result=report_browser.associate(self.config,self.uid,dict(sql,confirm=True),'synthetic')
+            result=report_browser.associate(self.config,self.uid,dict(sql,review_revision=workflow.revision(self.config,self.uid),confirm=True),'synthetic')
             engine.prepare(self.config,self.uid,result['report_id'],nlp=workflow.NoNLP())
             with database(self.config) as db:study=dict(db.execute('SELECT * FROM studies WHERE uid=?',(self.uid,)).fetchone())
-            engine.approve(self.config,self.uid,study['sanitized'],[],'Reviewed synthetic sources')
+            engine.approve(self.config,self.uid,study['sanitized'],[],'Reviewed synthetic sources', expected_revision=workflow.revision(self.config,self.uid))
             folder=engine.export_study(self.config,self.uid)
             self.assertTrue((folder/'Report/report.txt').exists())
         with patch('report_browser.request_broker',side_effect=ValueError('SQL source changed')):

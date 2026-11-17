@@ -16,11 +16,15 @@ function fixture(prefs={}){
   '1.2.3':{uid:'1.2.3',subject:'SUBJECT_SYNTHETIC_A',name:'Sample^Alex',patient:'SYNTHETIC_A',accession:'EXAM_A',date:'20200102',modality:'CT',count:1,state:'candidate',report_id:null},
   '1.2.4':{uid:'1.2.4',subject:'SUBJECT_SYNTHETIC_B',name:'Example^Jordan',patient:'SYNTHETIC_B',accession:'EXAM_B',date:'20200102',modality:'CT',count:1,state:'candidate',report_id:null}
  };
+ for(const [uid,values] of Object.entries(prefs.studies||{}))Object.assign(studies[uid],values);
+ for(const study of Object.values(studies))study.review_revision='revision-'+study.uid;
+ const requests=[];
  const pending=new Map();
  function response(data,ok=true){return{ok,json:async()=>structuredClone(data)};}
  function detail(uid){return{study:studies[uid],original_report:'',candidates:studies[uid].report_id?[{id:studies[uid].report_id,path:'Associated synthetic report',reason:'manual'}]:[],images:[{id:uid==='1.2.3'?11:22,metadata:JSON.stringify({SeriesInstanceUID:'SERIES_'+uid,Modality:'CT'})}]};}
  w.fetch=async(url,options)=>{
   const route=new URL(String(url),'http://synthetic.invalid/');
+  requests.push({path:route.pathname,body:options?.body?JSON.parse(options.body):null});
   if(pending.has(route.pathname)){const wait=pending.get(route.pathname);pending.delete(route.pathname);await wait;}
   if(route.pathname==='/api/status')return response({version:'1.2.0',counts:[{kind:'dicom',status:'ok',count:2},{kind:'report',status:'ok',count:2}],states:[{state:'candidate',count:2}],jobs:prefs.jobs||[],settings:{scan_complete:'1',...(prefs.settings||{})},modalities:['CT'],sources:['/synthetic/images','/synthetic/reports'],output:'/synthetic/output',sql:[],exports:[],now:1});
   if(route.pathname==='/api/research-queue')return response({ready:!!prefs.suggestions,rows:[],counts:prefs.suggestions?[{bucket:'strong',count:2}]:[],total:0});
@@ -31,6 +35,8 @@ function fixture(prefs={}){
   const match=route.pathname.match(/^\/api\/study\/([0-9.]+)(.*)$/);
   if(match){const uid=match[1],action=match[2];
    if(!action)return response(detail(uid));
+   if(action==='/reopen-review'){studies[uid].state='review';studies[uid].review_revision+='-reopened';return response({ok:true});}
+   if(action==='/approve'){const body=JSON.parse(options.body);assert.equal(body.review_revision,studies[uid].review_revision);studies[uid].state='approved';studies[uid].sanitized=body.text;studies[uid].redactions=JSON.stringify(body.rectangles);studies[uid].review_note=body.note;studies[uid].review_revision+='-approved';return response({ok:true});}
    if(action==='/suggestions')return response(prefs.suggestions?{ready:true,txt_status:'2 of 2 TXT reports searchable',sql_status:'searched',rows:[{source:'sql',ref:'sql-a',path:'Synthetic SQL report',hash:'synthetic-hash',identity:{name:studies[uid].name,dob:'19700101',exam_date:'20200102'},bucket:'strong',matches:['Full patient name','Date of birth','Examination date'],differences:[],missing:[]}]}:{ready:false,rows:[],sql_status:'not checked'});
    if(action==='/ohif-status')return response({enabled:false});
    if(action==='/sql-candidates')return response({error:'SQL matching is temporarily disabled for patient-identity verification'},false);
@@ -38,12 +44,13 @@ function fixture(prefs={}){
    if(action.startsWith('/txt-report/'))return response({uid,id:Number(action.split('/').pop()),text:'SYNTHETIC REPORT '+uid,conflicts:[],preview_allowed:true,name:studies[uid].name,exam_date:'20200102',message:'Unverified synthetic candidate'});
    if(action==='/report-association'){const body=JSON.parse(options.body);studies[uid].report_id=Number(body.ref);studies[uid].state='needs_review';return response({associated:true,approved:false});}
   }
+  if(route.pathname==='/api/jobs')return response({id:1});
   if(route.pathname.startsWith('/api/report/'))return response({text:'SYNTHETIC ORIGINAL ASSOCIATED REPORT'});
   if(route.pathname.startsWith('/api/image/'))return{ok:true,blob:async()=>({marker:route.pathname.split('/').pop()}),headers:{get:name=>({'X-Frames':'1','X-Columns':'8','X-Rows':'8'}[name])}};
   throw Error('Unexpected synthetic API '+route.pathname);
  };
  w.eval(fs.readFileSync(path.join(root,'static/research-workspace.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/report-browser.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/app.js'),'utf8'));
- return{dom,w,$,open(uid){const accession=studies[uid].accession;const row=[...$('study-rows').children].find(row=>row.textContent.includes(accession));return row.querySelector('button').onclick();},hold(route){let release;pending.set(route,new Promise(resolve=>{release=resolve;}));return release;}};
+ return{dom,w,$,requests,studies,open(uid){const accession=studies[uid].accession;const row=[...$('study-rows').children].find(row=>row.textContent.includes(accession));return row.querySelector('button').onclick();},hold(route){let release;pending.set(route,new Promise(resolve=>{release=resolve;}));return release;}};
 }
 
 test('tabs carry the selected study through reports, association, review and export',async()=>{
@@ -115,4 +122,50 @@ test('failed jobs and partial source coverage remain visibly distinct from ready
  const job={id:9,state:'failed',kind:'reindex_sql',progress:100,message:'Synthetic SQL rebuild failed',created:1,finished:1};
  const failed=fixture({jobs:[job]});try{await settle();assert.match(failed.$('workspace-operation').textContent,/ACTION NEEDED/);assert.match(failed.$('workspace-operation').textContent,/Synthetic SQL rebuild failed/);}finally{failed.dom.window.close();}
  const partial=fixture({settings:{suggestions_ready:'1',suggestions_sql:'unavailable — TXT suggestions only',suggestions_txt:'2 of 2 TXT reports searchable',suggestions_run:'synthetic'}});try{await settle();assert.match(partial.$('workspace-operation').textContent,/PARTIAL COVERAGE/);assert.match(partial.$('matching-health').textContent,/unavailable/);}finally{partial.dom.window.close();}
+});
+
+
+test('approved reviews are locked until reopening preserves text and masks and disables export',async()=>{
+ const f=fixture({studies:{'1.2.3':{state:'approved',report_id:31,sanitized:'Approved text',redactions:'[[0,0,1,1]]',review_note:'Existing note'}}});
+ try{
+  await settle();await f.open('1.2.3');await settle();
+  assert.equal(f.$('sanitized').readOnly,true);assert.equal(f.$('masks').readOnly,true);
+  assert.equal(f.$('draw-mask').disabled,true);assert.equal(f.$('approve').disabled,true);
+  assert.equal(f.$('export-selected-study').disabled,false);
+  await f.$('reopen-review').onclick();await settle();
+  assert.equal(f.$('sanitized').value,'Approved text');assert.equal(f.$('masks').value,'[[0,0,1,1]]');
+  assert.equal(f.$('review-note').value,'Existing note');assert.equal(f.$('sanitized').readOnly,false);
+  assert.equal(f.$('export-selected-study').disabled,true);
+  f.$('sanitized').value='Corrected text';f.$('sanitized').dispatchEvent(new f.w.Event('input'));
+  f.$('masks').value='[[0,0,2,2]]';f.$('masks').dispatchEvent(new f.w.Event('change'));
+  f.$('report-reviewed').checked=true;f.$('images-reviewed').checked=true;
+  await f.$('approve').onclick();await settle();
+  const submitted=f.requests.find(r=>r.path.endsWith('/approve')).body;
+  assert.equal(submitted.review_revision,'revision-1.2.3-reopened');assert.equal(submitted.text,'Corrected text');
+  assert.deepEqual(submitted.rectangles,[[0,0,2,2]]);
+  assert.equal(f.$('sanitized').readOnly,true);assert.equal(f.$('export-selected-study').disabled,false);
+ }finally{f.dom.window.close();}
+});
+
+test('late approval response cannot replace a newly selected study',async()=>{
+ const f=fixture({studies:{'1.2.3':{state:'review',report_id:31,sanitized:'Prepared text'}}});
+ try{
+  await settle();await f.open('1.2.3');await settle();
+  f.$('report-reviewed').checked=true;f.$('images-reviewed').checked=true;
+  const release=f.hold('/api/study/1.2.3/approve');const approval=f.$('approve').onclick();await pause();
+  await f.open('1.2.4');await settle();release();await approval;await settle();
+  assert.match(f.$('current-study-banner').textContent,/EXAM_B/);
+  assert.equal(f.$('sanitized').value,'');
+ }finally{f.dom.window.close();}
+});
+
+test('dirty review controls block export even when the last loaded state was approved',async()=>{
+ const f=fixture({studies:{'1.2.3':{state:'approved',report_id:31,sanitized:'Approved text'}}});
+ try{
+  await settle();await f.open('1.2.3');await settle();
+  f.$('sanitized').value='Unsaved edit';f.$('sanitized').dispatchEvent(new f.w.Event('input'));
+  assert.equal(f.$('export-selected-study').disabled,true);
+  await f.$('export-selected-study').onclick();
+  assert.equal(f.requests.some(r=>r.path==='/api/jobs'),false);
+ }finally{f.dom.window.close();}
 });
