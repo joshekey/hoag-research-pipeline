@@ -33,9 +33,8 @@ async function loadSuggestions(){
      const result=await api('/api/report-browser/preview',{source:item.source,ref:item.ref});
      if(request!==reviewRequest||selected!==uid||serial!==browserSerial)return;
      if(result.source!==item.source||result.ref!==item.ref||result.hash!==item.hash)throw Error('Report changed since matching. Refresh the source index and suggestions.');
-     browserSelection=result;$('browser-text').value=result.text;
+     renderBrowserPreview(result,item);
      $('browser-identity').textContent='REPORT RECORD: '+item.source.toUpperCase()+' | '+names.join(' | ')+'. '+suggestionLabels[item.bucket]+'. Association target is the DICOM study in the banner above.';
-     $('browser-text').scrollIntoView({behavior:'smooth'});
     }finally{if(serial===browserSerial)$('browser-text').setAttribute('aria-busy','false');}
    })));
    $('suggestion-list').append(card);

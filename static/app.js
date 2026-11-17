@@ -588,7 +588,8 @@ function setupWorkflowPanels(){
  const matchBody=el('div');matchBody.id='matching-reports';
  matchBody.append(...$('matching').childNodes);
  const matchImages=el('div');matchImages.id='matching-images';
- $('matching').append(matchImages,matchBody);
+ const imageComparison=el('details');imageComparison.id='matching-image-comparison';imageComparison.append(el('summary','Compare exam images'),matchImages);
+ $('matching').append(imageComparison,matchBody);
  imagePanel.dataset.phase='images privacy';
  const reportPanel=document.querySelector('.review-grid > .panel:nth-child(2)');
  reportPanel.dataset.phase='privacy';

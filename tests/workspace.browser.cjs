@@ -1,4 +1,35 @@
 const {test,expect}=require('@playwright/test');
+test('long report lists keep the reader beside results and navigation resets confirmation',async({page})=>{
+ const rows=Array.from({length:100},(_,i)=>({source:'txt',ref:String(i),path:'/synthetic/report-'+i+'.txt',name:'Synthetic patient'}));
+ await page.route('**/api/report-browser/search',route=>route.fulfill({json:{groups:[{source:'txt',total:100,rows}],errors:[]}}));
+ await page.route('**/api/report-browser/preview',route=>{const body=route.request().postDataJSON();return route.fulfill({json:{...body,hash:'synthetic',text:'Report '+body.ref+'\n\nFINDINGS\nSynthetic findings for layout testing.',identity:{name:'Synthetic patient'}}});});
+ await page.goto('/');
+ await page.locator('.worklist-exam').first().click();
+ await page.locator('#primary-navigation a[href="#matching"]').click();
+ await expect(page.locator('#browser-rows tr')).toHaveCount(100);
+ await page.locator('#browser-rows button').first().click();
+ await expect(page.locator('#browser-text')).toHaveValue(/Report 0/);
+ const list=await page.locator('#browser-result-scroll').boundingBox(),reader=await page.locator('#browser-reader').boundingBox();
+ expect(list.height).toBeLessThanOrEqual(552);expect(reader.x).toBeGreaterThan(list.x+list.width);
+ await page.locator('#browser-confirm').check();
+ await page.locator('#browser-note').fill('Previous report only');
+ await page.locator('#browser-report-next').click();
+ await expect(page.locator('#browser-text')).toHaveValue(/Report 1/);
+ await expect(page.locator('#browser-position')).toHaveText('2 of 100 loaded reports');
+ await expect(page.locator('#browser-confirm')).not.toBeChecked();
+ await expect(page.locator('#browser-note')).toHaveValue('');
+ await expect(page.locator('#browser-associate')).toBeDisabled();
+ await expect(page.locator('#browser-rows tr[aria-selected=true]')).toContainText('report-1.txt');
+ await page.locator('#browser-report-prev').click();
+ await expect(page.locator('#browser-text')).toHaveValue(/Report 0/);
+ await expect(page.locator('#browser-report-prev')).toBeDisabled();
+ await page.screenshot({path:'test-results/report-reader-desktop.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});
+ await page.locator('#browser-report-next').click();
+ await expect(page.locator('#browser-text')).toHaveValue(/Report 1/);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ await page.screenshot({path:'test-results/report-reader-mobile.png',fullPage:true});
+});
 test('patient search, review queue, persistent selection and responsive workspace',async({page})=>{
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/');
@@ -58,6 +89,7 @@ test('official OHIF bundle retrieves and renders synthetic DICOM pixels',async({
 test('associate, prepare, review, approve and export the selected exam',async({page})=>{
  await page.goto('/');
  await page.locator('.worklist-exam').filter({hasText:'SYNTHETIC123'}).click();
+ await page.locator('#primary-navigation a[href="#matching"]').click();
  await page.locator('#browser-rows button').first().click();
  await expect(page.locator('#browser-text')).toHaveValue(/Clear lungs/);
  await page.locator('#browser-confirm').check();
