@@ -28,3 +28,5 @@ jobs:
       - run: node --check static/app.js
       - run: node --check static/report-browser.js
       - run: node --check static/research-workspace.js
+      - run: node --check static/source-admin.js
+      - run: node --check static/workspace-enhancements.js

@@ -8,6 +8,7 @@ import socket
 import struct
 import subprocess
 import time
+import tempfile
 from pathlib import Path
 from store import audit, database, idle, load_config
 
@@ -18,6 +19,10 @@ TARGETS = {'bulk': '/mnt/hoag-bulk', 'imaging': '/mnt/hoag-imaging', 'output': '
 
 
 def validate(body):
+    if isinstance(body, dict) and body.get('action') == 'inspect':
+        return {'action': 'inspect'}
+    if isinstance(body, dict) and body.get('action', 'apply') not in ('apply', 'test'):
+        raise ValueError('Unknown mount action')
     if not isinstance(body, dict) or body.get('slot') not in TARGETS:
         raise ValueError('Choose a configured share slot')
     values = {}
@@ -31,9 +36,95 @@ def validate(body):
         raise ValueError('Enter a share root such as //SERVER/SHARE NAME')
     if not values['username'] or not values['password']:
         raise ValueError('Username and password are required')
-    if body.get('confirm') is not True:
+    if body.get('action', 'apply') == 'apply' and body.get('confirm') is not True:
         raise ValueError('Confirm that this share may be connected or reconnected')
     return {**values, 'unc': unc, 'slot': body['slot']}
+
+
+def inspect_mounts(config):
+    """Never send passwords or mount options over the socket."""
+    lines = FSTAB.read_text().splitlines()
+    result = []
+    for slot, target in TARGETS.items():
+        entries = [line for line in lines if not line.lstrip().startswith('#')
+                   and len(line.split()) >= 2 and line.split()[1] == target]
+        managed = not entries or (len(entries) == 1 and entries[0].endswith('# hoag-research:' + target))
+        configured = target == config['output_root'] if slot == 'output' else target in config['source_roots'] or slot == 'database'
+        item = dict(slot=slot, path=target, unc='', username='', domain='', editable=managed and configured)
+        if entries:
+            item['unc'] = entries[0].split()[0].replace(chr(92) + '040', ' ')
+        credential = BASE / (Path(target).name + '.credentials')
+        if managed and credential.is_file() and not credential.is_symlink():
+            for line in credential.read_text().splitlines():
+                key, _, value = line.partition('=')
+                if key in ('username', 'domain'):
+                    item[key] = value
+        result.append(item)
+    return {'mounts': result}
+
+
+def test_connection(body, config):
+    """Mount a candidate read-only in isolation; never reconnect the live share."""
+    import pwd
+    data = validate(body)
+    account = pwd.getpwnam('hoag-indexer')
+    # Reserve the worker queue, but do not invalidate scan/approval state for a test.
+    with catalog(config, account) as db:
+        db.execute('BEGIN IMMEDIATE')
+        idle(db)
+        with as_root():
+            temp = Path(tempfile.mkdtemp(prefix='hoag-share-test-'))
+            target = temp / 'share'
+            credential = temp / 'credentials'
+            mounted = False
+            try:
+                target.mkdir()
+                # Permit the service user to reach the temporary mount, not its credentials.
+                os.chmod(temp, 0o711)
+                credential.write_text('username=' + data['username'] + '\npassword=' + data['password'] + '\ndomain=' + data['domain'] + '\n')
+                os.chmod(credential, 0o600)
+                options = f'ro,credentials={credential},vers=3.1.1,seal,uid={account.pw_uid},gid={account.pw_gid},file_mode=0400,dir_mode=0500,nosuid,nodev,noexec'
+                command(['/usr/bin/mount', '-t', 'cifs', data['unc'], str(target), '-o', options])
+                mounted = True
+                previous = os.geteuid() if hasattr(os, 'geteuid') else None
+                try:
+                    if previous == 0:
+                        os.seteuid(account.pw_uid)
+                    names = []
+                    with os.scandir(target) as children:
+                        for index, child in enumerate(children):
+                            if index >= 2000:
+                                break
+                            if child.is_dir(follow_symlinks=False):
+                                names.append(child.name)
+                                if len(names) == 50:
+                                    break
+                finally:
+                    if previous == 0:
+                        os.seteuid(previous)
+                return {'message': 'Read-only connection test passed. Live mounts and catalog are unchanged. Output write access is checked after saving.',
+                        'folders': sorted(names), 'limit': 50}
+            except Exception:
+                raise ValueError('Connection test failed. Check the share path, credentials, SMB access and folder permissions. Live mount settings were not changed.') from None
+            finally:
+                # Never recursively delete a directory that may still contain a mounted share.
+                try:
+                    if mounted or os.path.ismount(target):
+                        command(['/usr/bin/umount', str(target)])
+                finally:
+                    credential.unlink(missing_ok=True)
+                    if not os.path.ismount(target):
+                        target.rmdir()
+                        temp.rmdir()
+
+
+def dispatch(body, config):
+    validate(body)
+    if body.get('action') == 'inspect':
+        return inspect_mounts(config)
+    if body.get('action') == 'test':
+        return test_connection(body, config)
+    return apply(body, config)
 
 
 def command(args):
@@ -137,12 +228,16 @@ def apply(body, config):
                 except Exception:
                     pass
             raise ValueError('Connection failed. Prior settings restored; check credentials, SMB access and server mount status. A successful rescan is required.') from None
-    return {'message': 'Share connected. Credentials saved locally; automatic mounting enabled. Rescan before review or export.'}
+    return {'message': 'Share connected. Credentials saved locally; automatic mounting enabled. ' +
+            ('Existing export packages stay on their original share. Check output health before exporting.' if writable else
+             'Rescan before review or export. Choose all source folders you want to keep in the catalog.')}
 
 
 def request_mount(body):
     # Credentials travel only over the local protected Unix socket, never as process arguments.
     validate(body)
+    if not hasattr(socket, 'AF_UNIX'):
+        raise ValueError('Mount helper requires the Linux server; connection editing is unavailable on this host')
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
             client.settimeout(115)
@@ -192,7 +287,7 @@ def main():
                         raw += block
                     if len(raw) > 16384:
                         raise ValueError('Request too large')
-                    result = apply(json.loads(raw), load_config(BASE / 'config.json'))
+                    result = dispatch(json.loads(raw), load_config(BASE / 'config.json'))
                 except Exception as error:
                     result = {'error': str(error) if type(error) is ValueError else 'Mount helper failed; check service status'}
                 try:
