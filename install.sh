@@ -34,10 +34,8 @@ python3 -m venv "$RUNTIME"
 # The service account must be able to traverse and read the root-installed runtime.
 chmod -R a+rX "$RUNTIME"
 runuser -u hoag-indexer -- "$RUNTIME/bin/python" -c 'import flask, pydicom, dicomanonymizer, presidio_analyzer, spacy; spacy.load("en_core_web_sm")'
-if [[ ! -f /opt/hoag-research/ohif-assets/index.html ]]; then
-  "$RUNTIME/bin/python" "$ROOT/scripts/fetch_ohif_assets.py" "$RUNTIME/ohif-assets"
-  chmod -R a+rX "$RUNTIME/ohif-assets"
-fi
+# The primary workspace uses the native review viewer. Existing legacy OHIF
+# assets are preserved, but installing/updating the app does not require them.
 # Recheck after downloads and close the queue/installer race before copying files.
 python3 "$ROOT/install_support.py" reserve
 ACTIVE=()

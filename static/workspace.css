@@ -22,3 +22,38 @@ table th{color:var(--muted)}table td{border-color:var(--line)}tbody tr:hover{bac
 .approval-actions{position:static;box-shadow:none}.mask-help{background:#edf5f9;border-left:3px solid var(--accent);padding:8px 12px;margin:10px 0}.mask-help p{margin:5px 0;font-size:13px}
 #image-viewport{scroll-margin-top:150px}#mask-canvas{image-rendering:pixelated}#mask-summary{font-weight:600}#browser-reader{scroll-margin-top:150px}
 @media(max-width:760px){.current-study-banner{gap:4px 8px;padding:10px}.selection-patient{font-size:16px}.selection-exam{font-size:13px}.selection-detail,.selection-state{font-size:11px}}
+
+/* Single review workspace: native images left; discovery and draft right. */
+#primary-navigation,#ohif-pilot-panel,#matching-image-comparison{display:none!important}
+.study-workspace{grid-template-columns:230px minmax(0,1fr);gap:16px}
+#single-workspace{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);gap:16px;align-items:start}
+#workspace-images,#workspace-reports{min-width:0}#workspace-images{position:sticky;top:125px}#workspace-images h3{margin-top:0}
+#workspace-reports .panel{padding:14px}#workspace-reports #matching{margin:0}#workspace-reports #matching>h2{display:none}
+#workspace-report-mode{margin:0 0 10px}#workspace-report-mode button{flex:1}#workspace-report-mode button[aria-pressed=true]{background:var(--accent);color:#fff}
+#workspace-reports #browser-split{display:block}#workspace-reports #browser-reader{border:0;padding:0}#workspace-reports #browser-text{height:290px;min-height:200px;font-size:14px;line-height:1.6;padding:12px}
+#workspace-reports #browser-report-choice{width:100%;margin:8px 0}#workspace-reports #browser-preview-title{font-size:15px}
+#workspace-reports #browser-result-scroll{max-height:260px}#workspace-reports #browser-suggestions .panel{max-height:260px}
+#workspace-reports #original,#workspace-reports #sanitized{min-height:260px;font:14px/1.6 system-ui,sans-serif}
+#workspace-reports #legacy-txt-tools{margin-top:0;padding:12px}#workspace-reports #legacy-txt-tools input,#workspace-reports #legacy-txt-tools select{min-width:0;width:100%}
+#workspace-reports .toolbar input,#workspace-reports .toolbar select{min-width:0;max-width:100%}
+#workspace-images #image-viewport{max-height:55vh;min-height:100px;border:1px solid var(--line)}
+#workspace-images #image-info,#workspace-images #dicom-review-progress{font-size:12px;margin:6px 0}
+#workspace-images .toolbar{gap:6px;margin:8px 0}#workspace-images button{padding:8px 10px}
+#workspace-images #image-choice{max-width:150px}#workspace-images #dicom-series{max-width:100%}#workspace-images #frame{width:65px}
+#workspace-images #window-center,#workspace-images #window-width{width:85px}#mask-scope{display:block;width:100%;margin-top:5px}
+.mask-entry{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;border-bottom:1px solid var(--line);padding:8px 0;overflow-wrap:anywhere}.mask-entry button{flex:none}
+#mask-list{max-height:180px;overflow:auto}#mask-status,#mask-summary{font-size:12px}.mask-help{padding:6px 10px}
+.workspace-footer{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:14px;background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-top:16px;flex-wrap:wrap}#workspace-save-state{margin-right:auto;font-size:13px}
+#workspace-final{scroll-margin-top:140px;background:var(--panel);padding:16px;border:1px solid var(--line);border-top:3px solid var(--hoag-orange);border-radius:8px;margin-top:12px}
+#workspace-final .approval-panel,#workspace-final .approval-actions{position:static;box-shadow:none}#final-review-summary{padding:12px 0;border-bottom:1px solid var(--line)}
+#workspace-final #packages{margin:0}#workspace-final .panel{padding:14px}#workspace-report-mode button{white-space:normal}
+@media(max-width:1200px){.study-workspace{grid-template-columns:190px minmax(0,1fr)}#single-workspace{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}#workspace-images{position:static}.worklist-modes{flex-wrap:wrap}}
+@media(max-width:900px){.study-workspace{grid-template-columns:1fr}.study-workspace>aside{position:static;max-height:260px}#worklist-rows{display:flex;gap:8px;overflow:auto}.worklist-exam{min-width:210px;width:210px;flex:none}#workspace-images{position:static}}
+@media(max-width:650px){#single-workspace{grid-template-columns:minmax(0,1fr)}#workspace-images #image-viewport{max-height:60vh}.current-study-banner{grid-template-columns:1fr}.selection-patient,.selection-exam,.selection-detail:nth-child(3),.selection-detail:nth-child(5),.selection-state{grid-column:1;grid-row:auto}#workspace-final{scroll-margin-top:210px}}
+
+.top-brand{padding:10px 24px;font-size:26px}.workspace-header{margin-bottom:12px}.workspace-header h1{font-size:22px}.workspace-header p{margin:4px 0}.operation-status{padding:9px 14px;margin:8px 0}
+#workspace-images>#image-viewport{max-height:48vh}#workspace-images #image-jump{margin:0;font-size:12px}#image-jump[open]{display:flex;flex-wrap:wrap;gap:8px}#workspace-images .mask-help{margin:8px 0}
+#workspace-reports #report-browser>h3,#workspace-reports #report-browser>p:first-of-type{display:none}#workspace-reports #report-browser>details>summary{padding:4px 0}#workspace-reports #browser-status{font-size:12px;margin:6px 0}
+#workspace-images #dicom-series{width:100%}#workspace-images .toolbar:has(#dicom-series){display:block}#workspace-images .toolbar:has(#dicom-series)>label{display:block}
+
+#workspace-images #image-stage{margin:0 auto}

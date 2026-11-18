@@ -17,6 +17,7 @@ function renderBrowserPreview(result,item){
 async function previewBrowserItem(index){
  const item=browserItems[index];if(!item)return;
  clearBrowserPreview();browserIndex=index;updateReportNavigation();
+ if($('browser-report-choice'))$('browser-report-choice').value=String(index);
  const serial=browserSerial,row=$('browser-rows').children[index];
  row.querySelector('input').checked=true;row.setAttribute('aria-selected','true');
  $('browser-preview-title').textContent='Loading '+item.path.split(/[\\/]/).pop()+'…';
@@ -32,6 +33,7 @@ async function previewBrowserItem(index){
 function clearBrowserPreview(){
  ++browserSerial;browserSelection=null;
  browserIndex=-1;updateReportNavigation();$('browser-preview-title').textContent='Report preview';
+ if($('browser-report-choice'))$('browser-report-choice').value='';
  $('browser-text').setAttribute('aria-busy','false');
  $('browser-text').value='';$('browser-identity').textContent='No report preview selected.';
  $('browser-confirm').checked=false;$('browser-note').value='';$('browser-associate').disabled=true;
@@ -41,12 +43,14 @@ function clearBrowserPreview(){
 async function browseReports(){
  clearBrowserPreview();const serial=browserSerial;
  browserItems=[];$('browser-rows').replaceChildren();
+ if($('browser-report-choice'))$('browser-report-choice').replaceChildren(el('option','Searching reports…'));
  $('browser-status').textContent='Searching report sources…';$('report-browser').setAttribute('aria-busy','true');$('browser-search').disabled=true;
  try{
  const data=await api('/api/report-browser/search',{source:$('browser-source').value,q:$('browser-query').value,sort:$('browser-sort').value,offset:browserOffset});
  if(serial!==browserSerial)return;
  $('browser-rows').replaceChildren();
  browserItems=data.groups.flatMap(group=>group.rows);
+ if($('browser-report-choice')){const placeholder=el('option','Choose a report to preview');placeholder.value='';$('browser-report-choice').replaceChildren(placeholder);browserItems.forEach((item,i)=>{const option=el('option',item.source.toUpperCase()+' · '+item.path.split(/[\\/]/).pop());option.value=i;$('browser-report-choice').append(option);});}
  for(const group of data.groups)for(const item of group.rows){
   const row=el('tr'),box=el('input');box.type='checkbox';box.setAttribute('aria-label','Select '+item.path);
   cell(row,'').append(box);cell(row,item.source.toUpperCase());const filename=cell(row,item.path.split(/[\\/]/).pop());filename.title=item.path;cell(row,item.name||'Unknown');cell(row,item.date||'Unknown');

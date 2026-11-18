@@ -16,7 +16,7 @@ from PIL import Image
 from flask import jsonify
 import test_workflow as workflow
 import engine
-from store import database
+from store import database, research_uid
 from webapp import create_app
 from worker import process_one
 from ohif_poc import clinical_dicomweb
@@ -56,6 +56,10 @@ for i in range(3):
     ds.WindowWidth = 2400
     ds.PixelData = ((np.indices((64,64)).sum(axis=0)*20+i*100).astype('<u2')).tobytes()
     ds.save_as(path, enforce_file_format=True)
+scout = workflow.image(fixture.sources[0] / 'scout.dcm', fixture.uid, generate_uid())
+scout.PatientBirthDate = '19720514'
+scout.SeriesDescription = 'Synthetic scout'
+scout.save_as(fixture.sources[0] / 'scout.dcm', enforce_file_format=True)
 engine.scan(fixture.config)
 source_hashes = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in fixture.sources[0].iterdir() if path.is_file()}
 gate = fixture.root / 'viewer.uid'
@@ -73,7 +77,19 @@ def exported_pixels():
     with database(fixture.config) as db:
         row = db.execute('SELECT folder FROM exports WHERE study=? ORDER BY id DESC', (fixture.uid,)).fetchone()
     paths = list((Path(row['folder']) / 'DICOM').glob('*.dcm')) if row else []
-    return jsonify(count=len(paths), masked=bool(paths) and all((pydicom.dcmread(path).pixel_array[8:16, 8:16] == 0).all().item() for path in paths),
+    exact = bool(paths)
+    for path in fixture.sources[0].iterdir():
+        original = pydicom.dcmread(path)
+        if str(original.StudyInstanceUID) != fixture.uid:
+            continue
+        expected = original.pixel_array.copy()
+        if str(original.SOPInstanceUID) == str(fixture.original.SOPInstanceUID):
+            expected[8:16, 8:16] = 0
+        if str(original.SeriesInstanceUID) == fixture.series:
+            expected[24:32, 24:32] = 0
+        target = Path(row['folder']) / 'DICOM' / (research_uid(fixture.config, str(original.SOPInstanceUID)) + '.dcm') if row else None
+        exact = exact and target.is_file() and np.array_equal(pydicom.dcmread(target).pixel_array, expected)
+    return jsonify(count=len(paths), scoped_pixels_exact=bool(exact),
                    source_unchanged=all(hashlib.sha256(path.read_bytes()).hexdigest() == digest for path, digest in source_hashes.items()))
 
 original_prepare = engine.prepare

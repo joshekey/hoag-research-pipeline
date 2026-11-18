@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 
 import pydicom
+import pixel_masks
 from pydicom.errors import InvalidDicomError
 from store import audit, checkpoint, database, idle, progress, research_uid, token, require_revision, review_revision
 
@@ -515,11 +516,7 @@ def validate_review_content(config, clean, rectangles, note):
         raise ValueError('Invalid sanitized report')
     if not isinstance(note, str) or len(note) > 10000:
         raise ValueError('Review note must be text of up to 10000 characters')
-    if not isinstance(rectangles, list) or len(rectangles) > 100:
-        raise ValueError('Pixel masks must be a list of up to 100 rectangles')
-    for rect in rectangles:
-        if not isinstance(rect, list) or len(rect) != 4 or any(type(v) is not int or v < 0 for v in rect) or rect[2] <= 0 or rect[3] <= 0:
-            raise ValueError('Each mask is [x, y, width, height] with nonnegative origin and positive size')
+    pixel_masks.entries(rectangles)
 
 
 def save_review_draft(config, uid, clean, rectangles, note, actor='admin', *, expected_revision=None):
@@ -532,6 +529,9 @@ def save_review_draft(config, uid, clean, rectangles, note, actor='admin', *, ex
         if not study or study['state'] != 'review':
             raise ValueError('Prepare or reopen a review before saving a draft')
         require_revision(config, study, expected_revision)
+        if isinstance(rectangles, dict) and pixel_masks.entries(rectangles):
+            instances = db.execute("SELECT * FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=?", (uid,)).fetchall()
+            validate_study_masks(config, instances, rectangles)
         db.execute("UPDATE studies SET sanitized=?,redactions=?,review_note=?,approved_hash=NULL,approved_fingerprint=NULL WHERE uid=?",
                    (clean, json.dumps(rectangles), note, uid))
         audit(db, actor, 'save-review-draft', token(config, 'study', uid)[:20])
@@ -552,10 +552,8 @@ def approve(config, uid, clean, rectangles, note, actor='admin', *, expected_rev
         require_revision(config, study, expected_revision)
         instances = db.execute("SELECT * FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=?", (uid,)).fetchall()
         require_study_consistency(instances)
-        if rectangles:
-            for row in instances:
-                header = pydicom.dcmread(source_path(config, row), stop_before_pixels=True)
-                validate_mask_bounds(header, rectangles)
+        if pixel_masks.entries(rectangles):
+            validate_study_masks(config, instances, rectangles)
         approval_hash = digest(json.dumps([clean, rectangles, note, study['report_id'], study['report_hash'], study['source_hashes']], sort_keys=True).encode())
         db.execute("UPDATE studies SET sanitized=?,redactions=?,review_note=?,approved_hash=?,approved_fingerprint=fingerprint,state='approved' WHERE uid=?",
                    (clean, json.dumps(rectangles), note, approval_hash, uid))
@@ -577,29 +575,39 @@ def reopen_review(config, uid, expected_revision, actor='admin'):
         audit(db, actor, 'reopen-review', token(config, 'study', uid)[:20])
 
 
+def validate_study_masks(config, instances, document):
+    masks = pixel_masks.entries(document)
+    # Read source headers only inside the requested scopes. A single-frame save
+    # must not synchronously reread thousands of unrelated source instances.
+    targets = []
+    for row in instances:
+        metadata = json.loads(row['metadata'])
+        if any(pixel_masks.applies(mask, metadata) for mask in masks):
+            targets.append(pydicom.dcmread(source_path(config, row), stop_before_pixels=True))
+    pixel_masks.validate_targets(document, targets)
+
+
 def validate_mask_bounds(ds, rectangles):
-    if int(ds.get('SamplesPerPixel', 1)) != 1:
-        raise ValueError('Color pixel masking is unsupported; quarantine this study')
-    h, w = int(ds.Rows), int(ds.Columns)
-    for x, y, width, height in rectangles:
-        if x + width > w or y + height > h:
-            raise ValueError('Pixel mask is outside an image; masks apply to every instance. Use masks that fit all image dimensions before approval')
+    pixel_masks.validate_bounds(ds, pixel_masks.for_instance(rectangles, ds))
 
 
 def mask_pixels(ds, rectangles):
-    if not rectangles:
+    applicable = pixel_masks.for_instance(rectangles, ds)
+    if not applicable:
         return
-    import numpy as np
     from pydicom.uid import ExplicitVRLittleEndian
-    validate_mask_bounds(ds, rectangles)
+    pixel_masks.validate_bounds(ds, applicable)
     pixels = ds.pixel_array.copy()
-    for x, y, width, height in rectangles:
-        pixels[..., y:y + height, x:x + width] = 0
+    for mask in applicable:
+        x, y, width, height = mask['rect']
+        target = pixels[mask['frame']] if mask['scope'] == 'image' and int(ds.get('NumberOfFrames', 1)) > 1 else pixels
+        target[..., y:y + height, x:x + width] = 0
     ds.file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
     ds.PixelData = pixels.astype(pixels.dtype.newbyteorder('<')).tobytes()
     ds['PixelData'].is_undefined_length = False
     ds['PixelData'].VR = 'OB' if ds.BitsAllocated <= 8 else 'OW'
-    ds.BurnedInAnnotation = 'NO'
+    if pixel_masks.covers_frames(applicable, int(ds.get('NumberOfFrames', 1))):
+        ds.BurnedInAnnotation = 'NO'
 
 
 def anonymize_dataset(config, ds, subject, rectangles):
@@ -615,8 +623,8 @@ def anonymize_dataset(config, ds, subject, rectangles):
                pydicom.uid.EnhancedMRImageStorage}
     if str(ds.SOPClassUID) not in allowed or 'PixelData' not in ds:
         raise ValueError('Unsupported DICOM SOP class; study quarantined')
-    if str(ds.get('BurnedInAnnotation', '')).upper() == 'YES' and not rectangles:
-        raise ValueError('Burned-in annotations require configured pixel masks')
+    if str(ds.get('BurnedInAnnotation', '')).upper() == 'YES' and not pixel_masks.covers_frames(pixel_masks.for_instance(rectangles, ds), int(ds.get('NumberOfFrames', 1))):
+        raise ValueError('Burned-in annotations require configured pixel masks on every frame of this instance')
     mask_pixels(ds, rectangles)
     # Capture non-class UIDs, including nested references, before baseline actions.
     remapped = {}
