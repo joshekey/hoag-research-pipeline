@@ -36,6 +36,17 @@ test('pane width persists without storing patient information',async()=>{
  const f=fixture();try{await settle();f.$('workspace-split').value='65';f.$('workspace-split').dispatchEvent(new f.w.Event('input'));assert.equal(f.w.localStorage.getItem('hoag-pane-width'),'65');assert.equal(f.$('single-workspace').style.gridTemplateColumns,'65fr 35fr');}finally{f.w.close();}
 });
 
+test('a delayed exam response cannot restore selection after reconnecting its source',async()=>{
+ const f=fixture();try{
+  await settle();const release=f.hold('/api/study/1.2.3'),opening=f.open('1.2.3');
+  [...f.$('source-admin').querySelectorAll('button')].find(b=>b.textContent==='Edit connection').click();
+  f.$('mount-password').value='synthetic-secret';f.$('mount-test').click();await settle();
+  f.$('mount-confirm').checked=true;f.$('mount-confirm').dispatchEvent(new f.w.Event('input',{bubbles:true}));f.$('mount-submit').click();await settle();
+  const banner=f.$('current-study-banner').textContent;release();await opening;await settle();
+  assert.equal(f.$('current-study-banner').textContent,banner);assert.doesNotMatch(banner,/EXAM_A/);assert.equal(f.w.sessionStorage.getItem('hoag-selected-exam'),null);
+ }finally{f.w.close();}
+});
+
 function fixture(prefs={}){
  const dom=new JSDOM(fs.readFileSync(path.join(root,'templates/index.html'),'utf8'),{url:'http://synthetic.invalid/',runScripts:'outside-only'});
  const w=dom.window;w.scrollTo=()=>{};w.HTMLElement.prototype.scrollIntoView=()=>{};

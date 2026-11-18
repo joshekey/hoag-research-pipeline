@@ -66,7 +66,7 @@ function setupSourceAdmin(){
   const body=mountBody();mountBusy=true;mountTested='';updateMountActions();status.textContent='Saving connection. Source changes invalidate scan readiness and approvals. Keep this page open…';
   try{const result=await api('/api/mount',body);status.textContent=result.message;notice(result.message);await refresh();await health();}
   catch(error){status.textContent=error.message;notice(error.message,true);}
-  finally{if(body.slot!=='output'){reviewDirty=false;uid=null;clearActiveStudy();updateSelectedStudyBanner(null);showWorkspaceScreen();try{sessionStorage.removeItem('hoag-selected-exam');}catch(_error){}}body.password='';$('mount-password').value='';$('mount-confirm').checked=false;mountBusy=false;updateMountActions();}
+  finally{if(body.slot!=='output'){++reviewRequest;reviewDirty=false;uid=null;clearActiveStudy();updateSelectedStudyBanner(null);showWorkspaceScreen();try{sessionStorage.removeItem('hoag-selected-exam');}catch(_error){}}body.password='';$('mount-password').value='';$('mount-confirm').checked=false;mountBusy=false;updateMountActions();}
  };
  updateMountActions();
 }
