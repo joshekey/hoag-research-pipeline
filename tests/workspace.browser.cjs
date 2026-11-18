@@ -11,6 +11,39 @@ async function draw(page,start,end){
 }
 async function masks(page){return JSON.parse(await page.locator('#masks').inputValue());}
 
+test('description, exam filters, keyboard navigation and remembered pane width',async({page})=>{
+ await openExam(page);
+ await expect(page.locator('#current-study-banner')).toContainText('Synthetic CT chest');
+ await expect(page.locator('.worklist-exam').filter({hasText:'SYNTHETIC123'})).toContainText('Synthetic CT chest');
+ await page.locator('#exam-worklist details summary').click();
+ await page.locator('#worklist-from').fill('2021-01-01');await expect(page.locator('.worklist-exam')).toHaveCount(0);
+ await expect(page.locator('#current-study-banner')).toContainText('SYNTHETIC123');
+ await page.getByRole('button',{name:'Clear filters',exact:true}).click();await expect(page.locator('.worklist-exam')).toHaveCount(2);
+ await page.locator('#workspace-split').fill('65');
+ await page.locator('h1').click();await page.keyboard.press('ArrowRight');
+ await expect(page.locator('#dicom-position-label')).toContainText('Instance 2 / 3');
+ await expect(page.locator('#review-checklist')).toContainText('○ Images reviewed');
+ await page.reload();await expect(page.locator('#workspace-split')).toHaveValue('65');
+ await page.setViewportSize({width:390,height:844});
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
+test('administrator edits current mount and must retest changed settings',async({page})=>{
+ const calls=[];
+ await page.route('**/api/mounts',route=>route.fulfill({json:{mounts:[{slot:'imaging',path:'/synthetic/images',unc:'//server/imaging',username:'reader',domain:'HOAG',editable:true}]}}));
+ await page.route('**/api/source-coverage',route=>route.fulfill({json:{sources:[{root:'/synthetic/images',index:0,patients:3,studies:4,images:60,files:61,errors:1,folders:['FewPatients']}],last_scan:1700000000,scan_complete:true}}));
+ await page.route('**/api/mount',route=>{const b=route.request().postDataJSON();calls.push(b);return route.fulfill({json:{message:'Read-only connection test passed',folders:['FullArchive','FewPatients']}});});
+ await page.goto('/#source-settings');
+ await expect(page.locator('#source-admin')).toContainText('FewPatients');
+ await page.getByRole('button',{name:'Edit connection',exact:true}).click();
+ await expect(page.locator('#mount-unc')).toHaveValue('//server/imaging');await expect(page.locator('#mount-password')).toHaveValue('');
+ await page.locator('#mount-password').fill('synthetic-password');await page.locator('#mount-test').click();
+ await expect(page.locator('#mount-test-folders')).toContainText('FullArchive');expect(calls).toHaveLength(1);expect(calls[0].action).toBe('test');
+ await page.locator('#mount-confirm').check();await expect(page.locator('#mount-submit')).toBeEnabled();
+ await page.locator('#mount-unc').fill('//server/new');await expect(page.locator('#mount-submit')).toBeDisabled();
+ await page.screenshot({path:'test-results/source-administration.png',fullPage:true});
+});
+
 test('100 reports remain beside images with explicit selection and confirmation reset',async({page})=>{
  const rows=Array.from({length:100},(_,i)=>({source:'txt',ref:String(i),path:'/synthetic/report-'+i+'.txt',name:'Synthetic patient'}));
  await page.route('**/api/report-browser/search',route=>route.fulfill({json:{groups:[{source:'txt',total:100,rows}],errors:[]}}));
@@ -79,7 +112,7 @@ test('scoped masks survive draft reload and affect only selected image and serie
  await page.locator('#mask-scope').selectOption('series');await draw(page,24,32);
  await expect.poll(async()=>(await masks(page)).masks.length).toBe(2);document=await masks(page);expect(document.masks[1]).toMatchObject({scope:'series',rect:[24,24,8,8]});
  await page.locator('#dicom-next').click();await expect(page.locator('#mask-summary')).toContainText('1 on this frame');
- await page.locator('#dicom-series').selectOption({label:'2. Synthetic scout (1 instances)'});await expect(page.locator('#mask-summary')).toContainText('0 on this frame');
+ await page.locator('#dicom-series').selectOption({index:1});await expect(page.locator('#mask-summary')).toContainText('0 on this frame');
  await page.locator('#save-mask-draft').click();await expect(page.locator('#notice')).toContainText('Draft saved');
  await page.reload();await expect.poll(async()=>(await masks(page)).masks?.length).toBe(2);await expect(page.locator('#export-selected-study')).toBeDisabled();
  await page.locator('#review-final-button').click();await expect(page.locator('#final-review-summary')).toContainText('1 image/frame, 1 series');

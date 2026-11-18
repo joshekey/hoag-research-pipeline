@@ -39,6 +39,8 @@ async function refresh() {
   s.modalities.forEach(value=>{const o=el('option',value||'Unknown');o.value=value;$('filter-modality').append(o);});$('filter-modality').value=currentModality;
   renderActivity();renderJobs();renderQueues();renderExports();renderSQL(s.sql);
   for(const id of ['scan','scan-selected','match','prepare-batch','export-batch','prepare','approve','export','mount-submit'])$(id).disabled=active()||(id==='scan-selected'&&!chosenFolders.size)||(id==='prepare'&&!$('report-choice').value);
+  updateMountActions();
+  if($('worklist-modality')){const selected=$('worklist-modality').value;$('worklist-modality').replaceChildren(el('option','All modalities'));$('worklist-modality').firstChild.value='';for(const value of s.modalities){const o=el('option',value||'Unknown');o.value=value;$('worklist-modality').append(o);}$('worklist-modality').value=selected;}
   $('release-version').textContent='v'+s.version;updateExportSelection();updateResearchProgress();
   const savedSQL=$('reindex-sql-file').value;$('reindex-sql-file').replaceChildren(el('option','Select SQL dump'));$('reindex-sql-file').firstChild.value='';
   for(const item of s.sql||[]){const o=el('option',item.path);o.value=item.id;$('reindex-sql-file').append(o);}$('reindex-sql-file').value=savedSQL;
@@ -138,11 +140,12 @@ function updateSelectedStudyBanner(study){
  }
  const accession=study.accession||'No accession';
  const modality=study.modality||'Unknown modality';
- banner.append(el('span','SELECTED PATIENT','selection-label'),el('strong',(study.name||study.patient||study.subject).replaceAll('^',' '),'selection-patient'),el('span','Patient ID: '+(study.patient||'Unknown')+' · DOB: '+examDate(study.dob),'selection-detail'),el('span','SELECTED EXAM · '+accession,'selection-exam'),el('span',modality+' · '+examDate(study.date)+' · '+(study.count||0)+' images','selection-detail'),el('span',examState(study)+' · Original patient information','selection-state'));
+ banner.append(el('span','SELECTED PATIENT','selection-label'),el('strong',(study.name||study.patient||study.subject).replaceAll('^',' '),'selection-patient'),el('span','Patient ID: '+(study.patient||'Unknown')+' · DOB: '+examDate(study.dob),'selection-detail'),el('span','SELECTED EXAM · '+accession,'selection-exam'),el('span',(study.description||'Study description not indexed')+' · '+modality+' · '+examDate(study.date)+' · '+(study.count||0)+' images','selection-detail'),el('span',examState(study)+' · Original patient information','selection-state'));
  $('exam-action-context').textContent='Actions apply to '+accession+' · '+(study.patient||study.subject);
  renderWorklistSelection();
 }
 async function openStudy(value, target='#studies') {
+ if(mountBusy){notice('Wait for the connection operation to finish before opening an exam.',true);return;}
  if(reviewDirty&&!window.confirm('Discard unsaved review changes and open this exam?'))return;
  const generation=++reviewRequest,modeRequest=workspaceModeRequest;uid=value;
  clearActiveStudy();
@@ -339,6 +342,7 @@ function updateStack(){
  $('dicom-position-label').textContent=items.length?'Instance '+(index+1)+' / '+items.length+' · Frame '+(frame+1)+' / '+count:'No images';
  $('dicom-prev').disabled=!items.length||(index===0&&frame===0);
  $('dicom-next').disabled=!items.length||(index===items.length-1&&frame===count-1);
+ updateWorkspaceChecklist();
  const shown=new Set([...inspectedFrames].map(x=>x.split(':')[0])).size;
  const total=[...dicomSeries.values()].reduce((n,v)=>n+v.images.length,0);
  $('dicom-review-progress').textContent='Displayed '+shown+' / '+total+' instances; '+inspectedFrames.size+' frames displayed. Total frame counts are unknown until images are opened. Displayed is not clinically reviewed.';
@@ -467,13 +471,12 @@ $('zoom-fit').onclick=()=>{cancelMaskDrag();zoom=1;applyZoom();drawMasks();};
 $('undo-mask').onclick=safely(()=>{if(!reviewEditable())return;const all=maskEntries();all.pop();writeMasks(all);$('images-reviewed').checked=false;markReviewDirty();drawMasks();});
 $('masks').oninput=()=>{cancelMaskDrag();$('images-reviewed').checked=false;markReviewDirty();drawMasks();};
 $('masks').onchange=$('masks').oninput;
-async function health() {try{const data=await api('/api/health');$('health').replaceChildren();for(const share of data.shares){const c=el('div',undefined,'card');c.append(el('h3',share.slot),el('p',share.path),el('p',share.message,share.ok?'good':'warning'));if(share.ok)c.append(el('p',bytes(share.free)+' free / '+bytes(share.total)));$('health').append(c);if(share.output)$('export-space').textContent=share.ok?'Output capacity: '+bytes(share.free)+' free of '+bytes(share.total):'Output unavailable: '+share.message;}}catch(e){notice(e.message,true);} }
+async function baseHealth() {sourceHealth=[];try{const data=await api('/api/health');sourceHealth=data.shares;$('health').replaceChildren();for(const share of data.shares){const c=el('div',undefined,'card');c.append(el('h3',share.slot),el('p',share.path),el('p',share.message,share.ok?'good':'warning'));if(share.ok)c.append(el('p',bytes(share.free)+' free / '+bytes(share.total)));$('health').append(c);if(share.output)$('export-space').textContent=share.ok?'Output capacity: '+bytes(share.free)+' free of '+bytes(share.total):'Output unavailable: '+share.message;}}catch(e){notice(e.message,true);} }
 function renderExports() {$('exports').replaceChildren();if(!latest.exports.length){$('exports').textContent='No completed packages yet.';return;}const table=el('table');const header=el('tr');['Package destination','Created','Size','Validation',''].forEach(x=>header.append(el('th',x)));table.append(header);for(const record of latest.exports){const tr=el('tr');cell(tr,record.folder,'package-path');cell(tr,date(record.created));cell(tr,bytes(record.bytes));const c=cell(tr,record.validation);if(record.validated)c.append(el('span',date(record.validated),'sub'));const b=button('Verify checksums',()=>queue('validate_export',{export_id:record.id}));b.disabled=active();cell(tr,'').append(b);table.append(tr);}$('exports').append(table,el('p','Showing the latest 100 completed packages.','muted'));}
 function renderSQL(files) {
  const opened=new Set([...$('sql').querySelectorAll('details[open]')].map(n=>n.dataset.key));$('sql').replaceChildren();if(!files.length){$('sql').textContent='No SQL dumps found in the selected folders.';return;}const search=$('schema-search').value.toLowerCase();
  for(const file of files){const metadata=JSON.parse(file.metadata),block=el('div',undefined,'schema-block');block.append(el('h3',file.path),el('p','Detected format: '+metadata.possible_type));const b=button('Inspect table and column names',()=>queue('inspect_sql',{file_id:file.id}));b.disabled=active();block.append(b);if(metadata.schema){block.append(el('p',metadata.schema.method+(metadata.schema.limited?' - inspection limit reached':''),'muted'));const tables=metadata.schema.tables.filter(t=>(t.table+' '+t.columns.join(' ')).toLowerCase().includes(search));for(const table of tables){const detail=el('details');detail.dataset.key=file.id+':'+table.table;detail.open=!!search||opened.has(detail.dataset.key);detail.append(el('summary',table.table+' ('+table.columns.length+' columns)'));const columns=el('div',undefined,'schema-columns');for(const column of table.columns)columns.append(el('span',column,table.potential_link_fields.includes(column)?'field useful':'field'));detail.append(columns);block.append(detail);}if(!tables.length)block.append(el('p','No matching supported table definitions found in the inspected portion.'));}else block.append(el('p','Inspect this dump to discover potential accession, study UID, report or file path fields.','muted'));$('sql').append(block);}
 }
-$('mount-form').onsubmit=async event=>{event.preventDefault();if(active()){notice('Wait for the current job before changing mounts.',true);return;}const body={slot:$('mount-slot').value,unc:$('mount-unc').value,username:$('mount-user').value,domain:$('mount-domain').value,password:$('mount-password').value,confirm:$('mount-confirm').checked};$('mount-password').value='';$('mount-submit').disabled=true;notice('Connecting share. Please wait; existing connections may be reconnected.');try{const result=await api('/api/mount',body);notice(result.message);$('mount-confirm').checked=false;await refresh();await health();}catch(e){notice(e.message,true);}finally{body.password='';$('mount-submit').disabled=active();}};
 $('health-refresh').onclick=health;$('refresh').onclick=()=>{refresh();health();};$('scan').onclick=()=>queue('scan');$('match').onclick=()=>queue('suggest_reports');
 for(const id of ['search','filter-state','filter-modality','filter-from','filter-to','filter-sort','filter-direction'])$(id).onchange=safely(()=>{offset=0;return list();});
 $('filter-clear').onclick=safely(()=>{for(const id of ['search','filter-state','filter-modality','filter-from','filter-to'])$(id).value='';offset=0;return list();});
@@ -526,7 +529,7 @@ $('find-report').onclick=safely(async()=>{const reports=await api('/api/reports?
 $('sanitized').oninput=()=>{$('report-reviewed').checked=false;markReviewDirty();highlight();};
 $('review-note').oninput=markReviewDirty;
 for(const id of ['images-reviewed','report-reviewed'])$(id).onchange=markReviewDirty;
-function reviewEditable(){return selectedStudy?.state==='review'&&!reviewSaving&&!active();}
+function reviewEditable(){return selectedStudy?.state==='review'&&!reviewSaving&&!mountBusy&&!active();}
 function markReviewDirty(){reviewDirty=true;updateExportSelection();}
 function updateReviewControls(){
  const editable=reviewEditable(),locked=['approved','exported'].includes(selectedStudy?.state);
@@ -803,6 +806,7 @@ function renderMaskList(){
  });
 }
 function renderFinalSummary(){
+ updateWorkspaceChecklist();
  if(!$('final-review-summary'))return;
  const s=selectedStudy;let entries=[];try{entries=maskEntries();}catch(_error){}
  $('final-review-summary').replaceChildren(el('strong',s?(s.name||s.patient)+' · '+(s.accession||s.subject):'No exam selected'),el('p','Report: '+(s?.report_id?'Linked report #'+s.report_id:'No report linked')),el('p',entries.length+' masks: '+entries.filter(m=>m.scope==='image').length+' image/frame, '+entries.filter(m=>m.scope==='series').length+' series, '+entries.filter(m=>m.scope==='exam').length+' entire exam'),el('p','Destination: '+(latest?.output||'Not configured')));
@@ -855,5 +859,7 @@ function setupSingleWorkspace(){
  setWorkspaceReportMode('find');renderFinalSummary();
 }
 
-setupResearchWorkspace();setupReportBrowser();setupWorkflowPanels();makeStudyReviewPrimary();setupSingleWorkspace();showWorkspaceScreen();refresh();health();loadResearchQueue();setInterval(refresh,10000);setInterval(health,60000);
+setupResearchWorkspace();setupReportBrowser();setupWorkflowPanels();makeStudyReviewPrimary();setupSingleWorkspace();setupSourceAdmin();setupWorkspaceEnhancements();showWorkspaceScreen();refresh();health();loadResearchQueue();setInterval(refresh,10000);setInterval(health,60000);
 try{const restored=sessionStorage.getItem('hoag-selected-exam');if(restored&&/^[0-9.]+$/.test(restored))void openStudy(restored,window.location.hash||'#matching');}catch(_error){}
+
+async function health(){await baseHealth();await loadSourceAdmin();}

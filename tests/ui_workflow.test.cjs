@@ -7,6 +7,46 @@ const root=path.resolve(__dirname,'..');
 const pause=()=>new Promise(resolve=>setTimeout(resolve,0));
 async function settle(){for(let i=0;i<8;i++)await pause();}
 
+test('editing a mount prefills its connection, tests first, and invalidates test on edits',async()=>{
+ const f=fixture();try{
+  await settle();const edit=[...f.$('source-admin').querySelectorAll('button')].find(b=>b.textContent==='Edit connection');edit.click();
+  assert.equal(f.$('mount-unc').value,'//server/images');assert.equal(f.$('mount-user').value,'reader');assert.equal(f.$('mount-password').value,'');
+  assert.match(f.$('source-admin').textContent,/A-C/);assert.match(f.$('source-admin').textContent,/2 patient IDs/);
+  f.$('mount-password').value='synthetic-secret';f.$('mount-test').click();await settle();
+  assert.equal(f.requests.filter(r=>r.path==='/api/mount').length,1);assert.equal(f.requests.find(r=>r.path==='/api/mount').body.action,'test');
+  assert.match(f.$('mount-test-folders').textContent,/D-F/);assert.equal(f.$('mount-submit').disabled,true);
+  f.$('mount-confirm').checked=true;f.$('mount-confirm').dispatchEvent(new f.w.Event('input',{bubbles:true}));assert.equal(f.$('mount-submit').disabled,false);
+  f.$('mount-unc').value='//server/different';f.$('mount-unc').dispatchEvent(new f.w.Event('input',{bubbles:true}));assert.equal(f.$('mount-submit').disabled,true);
+  f.$('mount-test').click();await settle();f.$('mount-submit').click();await settle();
+  const calls=f.requests.filter(r=>r.path==='/api/mount');assert.equal(calls.length,3);assert.equal(calls[2].body.unc,'//server/different');assert.equal(calls[2].body.confirm,true);assert.equal(calls[2].body.action,undefined);
+  assert.equal(f.$('mount-password').value,'');assert.equal(f.$('mount-submit').disabled,true);
+ }finally{f.w.close();}
+});
+
+test('description and explicit review checklist do not confuse viewed images with approval',async()=>{
+ const f=fixture({studies:{'1.2.3':{description:'CT CHEST WITHOUT CONTRAST',state:'review',report_id:31,sanitized:'Draft'}}});try{
+  await settle();await f.open('1.2.3');await settle();
+  assert.match(f.$('current-study-banner').textContent,/CT CHEST WITHOUT CONTRAST/);assert.match(f.$('worklist-rows').textContent,/CT CHEST WITHOUT CONTRAST/);
+  assert.match(f.$('review-checklist').textContent,/○ Images reviewed/);assert.match(f.$('review-checklist').textContent,/✓ Privacy draft saved/);
+  f.$('sanitized').value='Edited';f.$('sanitized').dispatchEvent(new f.w.Event('input'));assert.match(f.$('review-checklist').textContent,/○ Privacy draft saved/);assert.match(f.$('workspace-export-status').textContent,/blocked/);
+ }finally{f.w.close();}
+});
+
+test('pane width persists without storing patient information',async()=>{
+ const f=fixture();try{await settle();f.$('workspace-split').value='65';f.$('workspace-split').dispatchEvent(new f.w.Event('input'));assert.equal(f.w.localStorage.getItem('hoag-pane-width'),'65');assert.equal(f.$('single-workspace').style.gridTemplateColumns,'65fr 35fr');}finally{f.w.close();}
+});
+
+test('a delayed exam response cannot restore selection after reconnecting its source',async()=>{
+ const f=fixture();try{
+  await settle();const release=f.hold('/api/study/1.2.3'),opening=f.open('1.2.3');
+  [...f.$('source-admin').querySelectorAll('button')].find(b=>b.textContent==='Edit connection').click();
+  f.$('mount-password').value='synthetic-secret';f.$('mount-test').click();await settle();
+  f.$('mount-confirm').checked=true;f.$('mount-confirm').dispatchEvent(new f.w.Event('input',{bubbles:true}));f.$('mount-submit').click();await settle();
+  const banner=f.$('current-study-banner').textContent;release();await opening;await settle();
+  assert.equal(f.$('current-study-banner').textContent,banner);assert.doesNotMatch(banner,/EXAM_A/);assert.equal(f.w.sessionStorage.getItem('hoag-selected-exam'),null);
+ }finally{f.w.close();}
+});
+
 function fixture(prefs={}){
  const dom=new JSDOM(fs.readFileSync(path.join(root,'templates/index.html'),'utf8'),{url:'http://synthetic.invalid/',runScripts:'outside-only'});
  const w=dom.window;w.scrollTo=()=>{};w.HTMLElement.prototype.scrollIntoView=()=>{};
@@ -28,6 +68,9 @@ function fixture(prefs={}){
   if(pending.has(route.pathname)){const wait=pending.get(route.pathname);pending.delete(route.pathname);await wait;}
   if(route.pathname==='/api/status')return response({version:'1.2.0',counts:[{kind:'dicom',status:'ok',count:2},{kind:'report',status:'ok',count:2}],states:[{state:'candidate',count:2}],jobs:prefs.jobs||[],settings:{scan_complete:'1',...(prefs.settings||{})},modalities:['CT'],sources:['/synthetic/images','/synthetic/reports'],output:'/synthetic/output',sql:[],exports:[],now:1});
   if(route.pathname==='/api/research-queue')return response({ready:!!prefs.suggestions,rows:[],counts:prefs.suggestions?[{bucket:'strong',count:2}]:[],total:0});
+  if(route.pathname==='/api/source-coverage')return response({sources:[{root:'/synthetic/images',index:0,patients:2,studies:2,images:4,files:4,folders:['A-C'],errors:0}],last_scan:1,scan_complete:true});
+  if(route.pathname==='/api/mounts')return response({mounts:[{slot:'imaging',path:'/synthetic/images',unc:'//server/images',username:'reader',domain:'HOAG',editable:true}]});
+  if(route.pathname==='/api/mount'){const body=JSON.parse(options.body);if(body.action==='test')return response({message:'Connection test passed',folders:['A-C','D-F']});return response({message:'Share connected. Rescan required.'});}
   if(route.pathname==='/api/health')return response({shares:[]});
   if(route.pathname==='/api/studies')return response({rows:Object.values(studies),total:2});
   if(route.pathname==='/api/report-browser/search'){const body=JSON.parse(options.body);if(body.q==='FAIL')return response({error:'Synthetic source failure'},false);const id=body.q==='Example'?'1.2.4':'1.2.3';return response({groups:[{source:'txt',total:1,rows:[{source:'txt',ref:id==='1.2.3'?'31':'42',path:'Synthetic report '+id,name:studies[id].name}]}],errors:[]});}
@@ -50,7 +93,7 @@ function fixture(prefs={}){
   if(route.pathname.startsWith('/api/image/'))return{ok:true,blob:async()=>({marker:route.pathname.split('/').pop()}),headers:{get:name=>({'X-Frames':'1','X-Columns':'8','X-Rows':'8'}[name])}};
   throw Error('Unexpected synthetic API '+route.pathname);
  };
- w.eval(fs.readFileSync(path.join(root,'static/research-workspace.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/report-browser.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/app.js'),'utf8'));
+ w.eval(fs.readFileSync(path.join(root,'static/research-workspace.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/report-browser.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/source-admin.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/workspace-enhancements.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'static/app.js'),'utf8'));
  return{dom,w,$,requests,studies,open(uid){const accession=studies[uid].accession;const row=[...$('study-rows').children].find(row=>row.textContent.includes(accession));return row.querySelector('button').onclick();},hold(route){let release;pending.set(route,new Promise(resolve=>{release=resolve;}));return release;}};
 }
 

@@ -66,7 +66,7 @@ def candidates(config, uid, query=None, sort='reason', offset=0):
         where += ' AND c.report IS NOT NULL'
     with database(config) as db:
         parser = db.execute("SELECT value FROM settings WHERE key='scan_parser'").fetchone()
-        if not parser or parser[0] != '3:' + config['report_encoding']:
+        if not parser or parser[0] != engine.scan_parser_key(config):
             raise ValueError('TXT surname index is not ready. Rescan the selected DICOM and report folders.')
         sql = ' FROM files f LEFT JOIN candidates c ON c.report=f.id AND c.study=? WHERE ' + where
         total = db.execute('SELECT count(*)' + sql, params).fetchone()[0]

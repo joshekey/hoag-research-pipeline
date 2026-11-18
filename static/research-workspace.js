@@ -101,6 +101,7 @@ async function loadExamWorklist(){
  const serial=++worklistSerial;
  const query=new URLSearchParams({paged:'1',q:$('worklist-search').value,offset:worklistOffset,sort:'date',direction:'desc'});
  if(worklistMode==='queue')query.set('workflow','review');
+ for(const [id,key] of [['worklist-modality','modality'],['worklist-state','state'],['worklist-from','from'],['worklist-to','to']])if($(id)?.value)query.set(key,$(id).value);
  $('worklist-status').textContent='Loading exams…';
  try{
   const data=await api('/api/studies?'+query);
@@ -109,7 +110,7 @@ async function loadExamWorklist(){
   worklistRows=data.rows;$('worklist-rows').replaceChildren();
   for(const study of data.rows){
    const b=button('',()=>openStudy(study.uid,'#matching'));b.className='secondary worklist-exam';b.dataset.study=study.uid;
-   b.append(el('strong',(study.name||study.patient||study.subject).replaceAll('^',' ')),el('span','', 'worklist-selection'),el('span','Patient ID: '+(study.patient||'Unknown')),el('span',(study.modality||'Unknown modality')+' · '+examDate(study.date)),el('span','Accession: '+(study.accession||'Unknown')),el('span',examState(study)));
+   b.append(el('strong',(study.name||study.patient||study.subject).replaceAll('^',' ')),el('span','', 'worklist-selection'),el('span','Patient ID: '+(study.patient||'Unknown')),el('span',(study.modality||'Unknown modality')+' · '+examDate(study.date)),el('span',study.description||'Study description not indexed'),el('span','Accession: '+(study.accession||'Unknown')),el('span',examState(study)));
    $('worklist-rows').append(b);
   }
   renderWorklistSelection();

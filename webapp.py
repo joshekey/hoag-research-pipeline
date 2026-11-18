@@ -157,7 +157,10 @@ def create_app(config):
         with database(config) as db:
             counts = [dict(r) for r in db.execute('SELECT kind,status,count(*) count,sum(size) bytes FROM files WHERE active=1 GROUP BY kind,status')]
             states = [dict(r) for r in db.execute('SELECT state,count(*) count FROM studies GROUP BY state')]
-            jobs = [dict(r) for r in db.execute('SELECT id,kind,state,progress,message,created,started,finished,phase,cancel_requested FROM jobs ORDER BY id DESC LIMIT 20')]
+            jobs = [dict(r) for r in db.execute('SELECT id,kind,state,progress,message,created,started,finished,phase,cancel_requested,payload FROM jobs ORDER BY id DESC LIMIT 20')]
+            for job in jobs:
+                payload = json.loads(job.pop('payload') or '{}')
+                job['study_uid'] = payload.get('uid') if job['kind'] == 'export' else None
             sql = [dict(r) for r in db.execute("SELECT id,path,metadata FROM files WHERE kind='sql' AND active=1 AND status='ok'")]
             exports = [dict(r) for r in db.execute('SELECT id,folder,created,bytes,validated,validation FROM exports ORDER BY id DESC LIMIT 100')]
             settings = dict(db.execute('SELECT key,value FROM settings'))
@@ -201,6 +204,9 @@ def create_app(config):
         with database(config) as db:
             total = db.execute('SELECT count(*) FROM studies WHERE ' + where, params).fetchone()[0]
             rows = [dict(r) for r in db.execute('SELECT uid,subject,accession,patient,name,date,modality,count,state,report_id FROM studies WHERE ' + where + ' ORDER BY ' + sort + ' ' + direction + ',uid LIMIT 100 OFFSET ?', [*params, offset])]
+            from source_admin import study_description
+            for row in rows:
+                row['description'] = study_description(db, row['uid'])
         if request.args.get('paged') == '1':
             return jsonify(rows=rows, total=total, offset=offset, page_size=100)
         return jsonify(rows)
@@ -231,6 +237,16 @@ def create_app(config):
         from mount_service import request_mount
         body = request.get_json()
         return jsonify(request_mount(body))
+
+    @app.get('/api/source-coverage')
+    def source_coverage():
+        from source_admin import coverage
+        return jsonify(coverage(config))
+
+    @app.get('/api/mounts')
+    def mounts():
+        from mount_service import request_mount
+        return jsonify(request_mount({'action': 'inspect'}))
 
     @app.get('/api/report/<int:file_id>')
     def report_text(file_id):
@@ -392,6 +408,8 @@ def create_app(config):
             study = db.execute('SELECT * FROM studies WHERE uid=?', (uid,)).fetchone()
             if not study:
                 abort(404)
+            from source_admin import study_description
+            study = dict(study, description=study_description(db, uid))
             candidates = [dict(r) for r in db.execute('SELECT f.id,f.path,c.reason FROM candidates c JOIN files f ON f.id=c.report WHERE c.study=?', (uid,))]
             images = [dict(r) for r in db.execute("SELECT id,metadata FROM files WHERE kind='dicom' AND active=1 AND status='ok' AND json_extract(metadata,'$.StudyInstanceUID')=? ORDER BY id", (uid,))]
             report = db.execute('SELECT * FROM files WHERE id=?', (study['report_id'],)).fetchone() if study['report_id'] else None
