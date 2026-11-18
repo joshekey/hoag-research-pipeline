@@ -90,6 +90,14 @@ class SourceAdminTests(unittest.TestCase):
         import pydicom
         ds=pydicom.dcmread(path);ds.StudyDescription='CT CHEST WITHOUT CONTRAST';ds.save_as(path,enforce_file_format=True)
         engine.scan(self.config)
+        # Simulate an older catalog with identical source sizes/mtimes. Upgrading
+        # the parser must reread the description without breaking TXT discovery.
+        with database(self.config) as db:
+            db.execute("UPDATE files SET metadata=json_remove(metadata,'$.StudyDescription') WHERE kind='dicom'")
+            db.execute("UPDATE settings SET value=? WHERE key='scan_parser'",('3:'+self.config['report_encoding'],))
+        engine.scan(self.config)
+        import txt_review
+        self.assertGreater(txt_review.candidates(self.config,self.uid)['total'],0)
         client,auth=self.client_auth()
         listing=client.get('/api/studies?paged=1',headers=auth).json
         self.assertEqual(listing['rows'][0]['description'],'CT CHEST WITHOUT CONTRAST')

@@ -20,6 +20,10 @@ TAGS = ['StudyInstanceUID', 'SeriesInstanceUID', 'SOPInstanceUID', 'SOPClassUID'
         'StudyDate', 'Modality', 'BurnedInAnnotation', 'PatientBirthDate', 'StudyDescription', 'SeriesDescription', 'BodyPartExamined']
 
 
+def scan_parser_key(config):
+    return '4:' + config['report_encoding']
+
+
 def study_conflicts(metas):
     """Missing dates are unknown; distinct nonempty dates are contradictions."""
     conflicts = []
@@ -187,7 +191,7 @@ def scan(config, job=None, folders=None, force=False):
     run = str(uuid.uuid4())
     count = 0
     # A changed parser/encoding must invalidate otherwise unchanged file entries.
-    parser_key = '4:' + config['report_encoding']
+    parser_key = scan_parser_key(config)
     with database(config) as db:
         previous_parser = db.execute("SELECT value FROM settings WHERE key='scan_parser'").fetchone()
     reuse = not force and previous_parser is not None and previous_parser[0] == parser_key
